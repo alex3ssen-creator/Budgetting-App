@@ -978,8 +978,20 @@ function newAccountId(){
 // single-balance format from before accounts existed — and always returns
 // the current { savings: [...], investments: [...] } shape, so nobody's
 // already-logged history gets silently dropped by this change.
+function defaultSavingsAccounts(){
+  return {
+    savings: [
+      { id: newAccountId(), name: 'Emergency fund',   log: [] },
+      { id: newAccountId(), name: 'Savings account',  log: [] },
+    ],
+    investments: []
+  };
+}
 function normalizeSavingsData(raw){
-  if(!raw) return { savings: [], investments: [] };
+  // Only a brand-new user (nothing saved yet, anywhere) gets the starter
+  // accounts — if someone has data at all, even empty arrays from
+  // deliberately deleting every account, that choice is respected as-is.
+  if(!raw) return defaultSavingsAccounts();
   if(Array.isArray(raw)){
     // Old flat format: a single running log with no account name at all.
     return {
