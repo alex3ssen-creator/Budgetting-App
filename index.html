@@ -138,6 +138,55 @@
     margin-top: 12px;
   }
 
+  /* ---------- Savings & investments accounts ---------- */
+  .account-group-head{
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom: 12px;
+  }
+  .account-group-head h3{
+    margin:0; font-family: var(--font-mono); font-size:11.5px; text-transform:uppercase;
+    letter-spacing:0.06em; color: var(--text-mute); font-weight:600;
+  }
+  .account-card{
+    background: var(--ink); border:1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .account-card-head{ display:flex; gap:10px; align-items:center; margin-bottom:8px; }
+  .account-name-input{
+    flex:1; min-width:0; background:none; border:none; outline:none;
+    color: var(--text); font-family: var(--font-body); font-weight:600; font-size:14px;
+    border-bottom: 1px dashed transparent; padding:2px 0;
+  }
+  .account-name-input:hover, .account-name-input:focus{ border-bottom-color: var(--line); }
+  .account-delete-btn{
+    flex-shrink:0; background:none; border:1px solid var(--line); color: var(--text-mute);
+    font-family: var(--font-mono); font-size:10.5px; padding:5px 9px; border-radius: var(--radius);
+    cursor:pointer;
+  }
+  .account-delete-btn:hover{ border-color: var(--rust); color: var(--rust); }
+  .account-balance{ font-family: var(--font-display); font-weight:700; font-size:22px; margin-bottom:10px; }
+  .account-update-row{ display:flex; gap:8px; margin-bottom:10px; }
+  .account-update-row input{
+    flex:1; min-width:0; background: var(--ink-2); border:1px solid var(--line);
+    border-radius: var(--radius); color: var(--text); font-family: var(--font-mono);
+    font-size:13.5px; padding:7px 10px;
+  }
+  .account-update-row button{
+    flex-shrink:0; font-family: var(--font-mono); font-size:11.5px;
+    padding:7px 12px; border-radius: var(--radius); cursor:pointer;
+    border:1px solid var(--teal); background: var(--teal-dim); color: var(--text);
+  }
+  .account-update-row button:hover{ background: var(--teal); }
+  .account-history{ border-top: 1px dashed var(--line); padding-top:8px; }
+  .account-history-row{
+    display:flex; justify-content:space-between; gap:10px;
+    font-family: var(--font-mono); font-size:11.5px; padding:3px 0; color: var(--text-mute);
+  }
+  .account-history-row span:first-child{ color: var(--text); }
+  .account-history-empty{
+    font-family: var(--font-mono); font-size:11px; color: var(--text-mute); padding:4px 0;
+  }
+
   /* ---------- Layout ---------- */
   .grid{ display:grid; grid-template-columns: 1.4fr 1fr; gap: 24px; margin-top: 28px; align-items:start; }
   @media (max-width: 800px){ .grid{ grid-template-columns: 1fr; } }
@@ -311,15 +360,15 @@
   }
   .modal-actions{ display:flex; gap:10px; margin-top:14px; justify-content:flex-end; }
 
-  /* ---------- History / year overview tables ---------- */
-  #historyTable td, #yearTable td{
+  /* ---------- History / year overview / savings log tables ---------- */
+  #historyTable td, #yearTable td, #savingsLogTable td{
     padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);
     font-family: var(--font-mono); font-size:12.5px;
   }
-  #historyTable td:first-child, #yearTable td:first-child{ padding-left:18px; font-family: var(--font-body); font-weight:600; }
-  #historyTable td:last-child, #yearTable td:last-child{ padding-right:18px; }
-  #historyTable td.num, #yearTable td.num{ text-align:right; }
-  #historyTable tr:last-child td, #yearTable tr:last-child td{ border-bottom:none; }
+  #historyTable td:first-child, #yearTable td:first-child, #savingsLogTable td:first-child{ padding-left:18px; font-family: var(--font-body); font-weight:600; }
+  #historyTable td:last-child, #yearTable td:last-child, #savingsLogTable td:last-child{ padding-right:18px; }
+  #historyTable td.num, #yearTable td.num, #savingsLogTable td.num{ text-align:right; }
+  #historyTable tr:last-child td, #yearTable tr:last-child td, #savingsLogTable tr:last-child td{ border-bottom:none; }
   .status-chip{
     display:inline-block; padding:2px 8px; border-radius: var(--radius);
     font-family: var(--font-mono); font-size:10.5px; text-transform:uppercase;
@@ -336,30 +385,33 @@
      instead of relying on horizontal scroll — on a phone, content sitting
      off to the side with no obvious scroll affordance just looks missing. */
   @media (max-width: 640px){
-    #historyTable, #yearTable, #historyTable tbody, #yearTable tbody,
-    #historyTable tr, #yearTable tr, #historyTable td, #yearTable td{
+    #historyTable, #yearTable, #savingsLogTable,
+    #historyTable tbody, #yearTable tbody, #savingsLogTable tbody,
+    #historyTable tr, #yearTable tr, #savingsLogTable tr,
+    #historyTable td, #yearTable td, #savingsLogTable td{
       display: block; width: 100%;
     }
-    #historyTable thead, #yearTable thead{ display:none; }
-    #historyTable tr, #yearTable tr{
+    #historyTable thead, #yearTable thead, #savingsLogTable thead{ display:none; }
+    #historyTable tr, #yearTable tr, #savingsLogTable tr{
       padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,0.08);
     }
-    #historyTable td, #yearTable td{
+    #historyTable td, #yearTable td, #savingsLogTable td{
       display:flex; justify-content:space-between; align-items:center;
       padding: 4px 0; border-bottom:none; text-align:right;
     }
-    #historyTable td:first-child, #yearTable td:first-child{
+    #historyTable td:first-child, #yearTable td:first-child, #savingsLogTable td:first-child{
       padding-left:0; font-size:14px; margin-bottom:4px;
       border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom:8px;
     }
-    #historyTable td:last-child, #yearTable td:last-child{ padding-right:0; }
+    #historyTable td:last-child, #yearTable td:last-child, #savingsLogTable td:last-child{ padding-right:0; }
     #historyTable td[data-label]:not([data-label=""])::before,
-    #yearTable td[data-label]:not([data-label=""])::before{
+    #yearTable td[data-label]:not([data-label=""])::before,
+    #savingsLogTable td[data-label]:not([data-label=""])::before{
       content: attr(data-label);
       font-family: var(--font-mono); font-size:10.5px; text-transform:uppercase;
       color: var(--text-mute); letter-spacing:0.04em;
     }
-    #historyTable td:first-child::before, #yearTable td:first-child::before{ content:none; }
+    #historyTable td:first-child::before, #yearTable td:first-child::before, #savingsLogTable td:first-child::before{ content:none; }
     .row-actions{ width:100%; justify-content:flex-end; }
   }
 
@@ -489,6 +541,48 @@
     </div>
   </div>
 
+  <div class="panel" id="savingsLogPanel" style="margin-top:24px;">
+    <div class="panel-head">
+      <h2>Savings &amp; investments — right now, not per month</h2>
+    </div>
+    <div style="padding:16px 18px;">
+      <p style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-mute); line-height:1.5; margin:0 0 16px;">
+        Separate from your monthly budget above — these are your actual balances, across as many accounts as you've got, updated whenever you check them. Not tied to any specific month.
+      </p>
+
+      <div style="display:flex; gap:28px; flex-wrap:wrap; margin-bottom:22px;">
+        <div>
+          <div style="font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; color:var(--text-mute); margin-bottom:4px;">Total savings</div>
+          <div class="rate-big" id="totalSavingsSum" style="font-size:28px;">—</div>
+        </div>
+        <div>
+          <div style="font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; color:var(--text-mute); margin-bottom:4px;">Total investments</div>
+          <div class="rate-big" id="totalInvestmentsSum" style="font-size:28px;">—</div>
+        </div>
+        <div>
+          <div style="font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; color:var(--text-mute); margin-bottom:4px;">Combined</div>
+          <div class="rate-big" id="totalCombinedSum" style="font-size:28px; color:var(--teal);">—</div>
+        </div>
+      </div>
+
+      <div class="account-group">
+        <div class="account-group-head">
+          <h3>Savings accounts</h3>
+          <button type="button" class="add-line-btn" id="addSavingsAccountBtn" style="width:auto;">+ add savings account</button>
+        </div>
+        <div id="savingsAccountsList"></div>
+      </div>
+
+      <div class="account-group" style="margin-top:22px;">
+        <div class="account-group-head">
+          <h3>Investments</h3>
+          <button type="button" class="add-line-btn" id="addInvestmentAccountBtn" style="width:auto;">+ add investment</button>
+        </div>
+        <div id="investmentAccountsList"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="panel" id="advisorPanel" style="margin-top:24px;">
     <div class="panel-head">
       <h2>Ask about a goal</h2>
@@ -590,11 +684,22 @@ const firebaseConfig = {
   messagingSenderId: "714131412913",
   appId: "1:714131412913:web:e8f47c852776e2c187cf90"
 };
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db = firebase.firestore();
-const googleProvider = new firebase.auth.GoogleAuthProvider();
+let auth = null, db = null, googleProvider = null;
 let currentUser = null;
+try{
+  // If the Firebase SDK script above got blocked (e.g. inside a sandboxed
+  // preview that restricts external scripts), `firebase` won't exist and
+  // this throws — caught here so auth/db/googleProvider stay null instead
+  // of leaving the page in a half-crashed state. Everything below checks
+  // for null before using them, so the budget itself always still works,
+  // cloud sync just quietly isn't available.
+  firebase.initializeApp(firebaseConfig);
+  auth = firebase.auth();
+  db = firebase.firestore();
+  googleProvider = new firebase.auth.GoogleAuthProvider();
+}catch(e){
+  console.error('Firebase unavailable — continuing in local-only mode.', e);
+}
 </script>
 
 <script>
@@ -628,6 +733,7 @@ function defaultSubItems(){
       { id: 'v1', name: 'Emergency fund',        amt: 150 },
       { id: 'v2', name: 'Pension / retirement',  amt: 150 },
       { id: 'v3', name: 'Investments',           amt: 100 },
+      { id: 'v4', name: 'General savings',       amt: 0   },
     ],
   };
 }
@@ -755,8 +861,10 @@ function applyIncomeScale(newIncome){
 
 const STORAGE_KEY = 'ledger-review-budget-v1';
 const HISTORY_KEY = 'ledger-review-history-v1';
+const SAVINGS_LOG_KEY = 'ledger-review-savings-log-v1';
 
 let history = {};        // monthKey ("YYYY-MM") -> { income, currency, categories, subItems, savedAt }
+let savingsAccounts = { savings: [], investments: [] }; // each entry: { id, name, log: [{date, balance}] }
 let selectedYear = null;
 
 function currentMonthKey(){
@@ -804,6 +912,7 @@ async function cloudSet(docPath, data){
 }
 function budgetDocPath(){ return `users/${currentUser.uid}/budget/current`; }
 function historyDocPath(){ return `users/${currentUser.uid}/budget/history`; }
+function savingsLogDocPath(){ return `users/${currentUser.uid}/budget/savingsLog`; }
 
 function loadState(){
   const local = localGet(STORAGE_KEY);
@@ -827,6 +936,7 @@ function loadState(){
   buildCatRows();
   render();
   loadHistoryLocal();
+  loadSavingsLogLocal();
 }
 
 function loadHistoryLocal(){
@@ -838,6 +948,34 @@ function loadHistoryLocal(){
   }
   renderHistory();
   renderYearOverview();
+}
+
+function newAccountId(){
+  return 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+}
+
+// Accepts whatever shape was previously stored — including the old
+// single-balance format from before accounts existed — and always returns
+// the current { savings: [...], investments: [...] } shape, so nobody's
+// already-logged history gets silently dropped by this change.
+function normalizeSavingsData(raw){
+  if(!raw) return { savings: [], investments: [] };
+  if(Array.isArray(raw)){
+    // Old flat format: a single running log with no account name at all.
+    return {
+      savings: raw.length ? [{ id: newAccountId(), name: 'General savings', log: raw }] : [],
+      investments: []
+    };
+  }
+  return {
+    savings: Array.isArray(raw.savings) ? raw.savings : [],
+    investments: Array.isArray(raw.investments) ? raw.investments : []
+  };
+}
+
+function loadSavingsLogLocal(){
+  savingsAccounts = normalizeSavingsData(localGet(SAVINGS_LOG_KEY));
+  renderSavingsAccounts();
 }
 
 // Runs once per sign-in, after Firebase confirms who's signed in. Cloud
@@ -868,6 +1006,13 @@ async function loadFromCloud(){
   }
   renderHistory();
   renderYearOverview();
+
+  const cloudSavingsData = await cloudGet(savingsLogDocPath());
+  if(cloudSavingsData){
+    savingsAccounts = normalizeSavingsData(cloudSavingsData);
+    localSet(SAVINGS_LOG_KEY, savingsAccounts);
+  }
+  renderSavingsAccounts();
 }
 
 async function saveState(){
@@ -1136,6 +1281,137 @@ function renderHistory(){
 
   tbody.querySelectorAll('[data-load]').forEach(btn => btn.addEventListener('click', () => loadMonthEntry(btn.dataset.load)));
   tbody.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => deleteMonthEntry(btn.dataset.del)));
+}
+
+function todayDateKey(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function dateLabel(dateKey){
+  const [y,m,d] = dateKey.split('-').map(Number);
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${d} ${names[m-1]} ${y}`;
+}
+
+function findAccount(groupKey, id){
+  return (savingsAccounts[groupKey] || []).find(a => a.id === id);
+}
+
+function latestBalance(account){
+  if(!account.log || account.log.length === 0) return null;
+  const sorted = [...account.log].sort((a,b) => a.date.localeCompare(b.date));
+  return sorted[sorted.length - 1].balance;
+}
+
+async function persistSavingsAccounts(){
+  localSet(SAVINGS_LOG_KEY, savingsAccounts);
+  if(currentUser){
+    await cloudSet(savingsLogDocPath(), savingsAccounts);
+  }
+}
+
+function renderSavingsAccounts(){
+  renderAccountGroup('savings', document.getElementById('savingsAccountsList'), 'No savings accounts yet — add one above.');
+  renderAccountGroup('investments', document.getElementById('investmentAccountsList'), 'No investment accounts yet — add one above.');
+
+  const cur = CURRENCIES[currency];
+  const sumGroup = (groupKey) => (savingsAccounts[groupKey] || []).reduce((sum, acc) => sum + (latestBalance(acc) || 0), 0);
+  const savingsTotal = sumGroup('savings');
+  const investmentsTotal = sumGroup('investments');
+
+  document.getElementById('totalSavingsSum').textContent = `${cur.symbol} ${Math.round(savingsTotal).toLocaleString(cur.locale)}`;
+  document.getElementById('totalInvestmentsSum').textContent = `${cur.symbol} ${Math.round(investmentsTotal).toLocaleString(cur.locale)}`;
+  document.getElementById('totalCombinedSum').textContent = `${cur.symbol} ${Math.round(savingsTotal + investmentsTotal).toLocaleString(cur.locale)}`;
+}
+
+function renderAccountGroup(groupKey, container, emptyText){
+  const accounts = savingsAccounts[groupKey] || [];
+  container.innerHTML = '';
+
+  if(accounts.length === 0){
+    container.innerHTML = `<div class="advisor-disclaimer" style="margin-top:0;">${emptyText}</div>`;
+    return;
+  }
+
+  const cur = CURRENCIES[currency];
+  accounts.forEach(acc => {
+    const sorted = [...acc.log].sort((a,b) => a.date.localeCompare(b.date));
+    const latest = sorted.length ? sorted[sorted.length - 1].balance : null;
+
+    let historyHtml;
+    if(sorted.length === 0){
+      historyHtml = `<div class="account-history-empty">No balance logged yet.</div>`;
+    } else {
+      const withChange = sorted.map((e, i) => ({ ...e, change: i > 0 ? e.balance - sorted[i-1].balance : null }));
+      historyHtml = withChange.slice(-6).reverse().map(e => {
+        const changeText = e.change === null ? '' : (e.change >= 0 ? '+' : '−') + cur.symbol + Math.round(Math.abs(e.change)).toLocaleString(cur.locale);
+        const changeColor = e.change === null ? 'var(--text-mute)' : e.change >= 0 ? 'var(--teal)' : 'var(--rust)';
+        return `<div class="account-history-row"><span>${dateLabel(e.date)}</span><span>${cur.symbol} ${Math.round(e.balance).toLocaleString(cur.locale)}</span><span style="color:${changeColor};">${changeText}</span></div>`;
+      }).join('');
+    }
+
+    const card = document.createElement('div');
+    card.className = 'account-card';
+    card.innerHTML = `
+      <div class="account-card-head">
+        <input type="text" class="account-name-input" data-name-account="${acc.id}" value="${acc.name.replace(/"/g,'&quot;')}">
+        <button type="button" class="account-delete-btn" data-del-account="${acc.id}">Delete</button>
+      </div>
+      <div class="account-balance">${latest === null ? '—' : cur.symbol + ' ' + Math.round(latest).toLocaleString(cur.locale)}</div>
+      <div class="account-update-row">
+        <input type="number" min="0" step="10" placeholder="New balance" data-input-account="${acc.id}">
+        <button type="button" data-log-account="${acc.id}">Log</button>
+      </div>
+      <div class="account-history">${historyHtml}</div>
+    `;
+    container.appendChild(card);
+  });
+
+  container.querySelectorAll('[data-name-account]').forEach(inp => {
+    inp.addEventListener('change', async () => {
+      const acc = findAccount(groupKey, inp.dataset.nameAccount);
+      if(acc){ acc.name = inp.value || acc.name; await persistSavingsAccounts(); }
+    });
+  });
+  container.querySelectorAll('[data-del-account]').forEach(btn => {
+    btn.addEventListener('click', () => deleteAccount(groupKey, btn.dataset.delAccount));
+  });
+  container.querySelectorAll('[data-log-account]').forEach(btn => {
+    btn.addEventListener('click', () => logAccountBalance(groupKey, btn.dataset.logAccount));
+  });
+}
+
+function addAccount(groupKey){
+  if(!savingsAccounts[groupKey]) savingsAccounts[groupKey] = [];
+  savingsAccounts[groupKey].push({
+    id: newAccountId(),
+    name: groupKey === 'savings' ? 'New savings account' : 'New investment',
+    log: []
+  });
+  persistSavingsAccounts();
+  renderSavingsAccounts();
+}
+
+async function logAccountBalance(groupKey, id){
+  const input = document.querySelector(`[data-log-account="${id}"]`).parentElement.querySelector('input[type=number]');
+  const balance = Number(input.value);
+  if(!input.value || isNaN(balance) || balance < 0) return;
+
+  const acc = findAccount(groupKey, id);
+  if(!acc) return;
+  const dateKey = todayDateKey();
+  // Logging again today updates today's entry rather than adding a duplicate.
+  acc.log = acc.log.filter(e => e.date !== dateKey);
+  acc.log.push({ date: dateKey, balance });
+
+  await persistSavingsAccounts();
+  renderSavingsAccounts();
+}
+
+async function deleteAccount(groupKey, id){
+  savingsAccounts[groupKey] = (savingsAccounts[groupKey] || []).filter(a => a.id !== id);
+  await persistSavingsAccounts();
+  renderSavingsAccounts();
 }
 
 function loadMonthEntry(key){
@@ -1441,6 +1717,24 @@ function buildCSVString(){
     });
   }
 
+  const allAccounts = [...(savingsAccounts.savings || []), ...(savingsAccounts.investments || [])];
+  const hasAnyLog = allAccounts.some(a => a.log.length > 0);
+  if(hasAnyLog){
+    rows.push([]);
+    rows.push(['— Savings & investments, over time (not tied to any month) —']);
+    rows.push(['Account', 'Type', 'Date', 'Balance', 'Change since last logged']);
+    ['savings', 'investments'].forEach(groupKey => {
+      (savingsAccounts[groupKey] || []).forEach(acc => {
+        const sorted = [...acc.log].sort((a,b) => a.date.localeCompare(b.date));
+        sorted.forEach((entry, i) => {
+          const prev = i > 0 ? sorted[i-1].balance : null;
+          const change = prev === null ? '' : Math.round(entry.balance - prev);
+          rows.push([acc.name, groupKey === 'savings' ? 'Savings' : 'Investment', entry.date, Math.round(entry.balance), change]);
+        });
+      });
+    });
+  }
+
   return rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
 }
 
@@ -1629,7 +1923,10 @@ document.getElementById('currencySelect').addEventListener('change', (e) => {
   document.getElementById('currencySymbol').textContent = CURRENCIES[currency].symbol;
   document.getElementById('goalAmountSymbol').textContent = CURRENCIES[currency].symbol;
   render();
+  renderSavingsAccounts();
 });
+document.getElementById('addSavingsAccountBtn').addEventListener('click', () => addAccount('savings'));
+document.getElementById('addInvestmentAccountBtn').addEventListener('click', () => addAccount('investments'));
 document.getElementById('advisorBtn').addEventListener('click', getAdvice);
 document.getElementById('yearSelect').addEventListener('change', (e) => {
   selectedYear = e.target.value;
@@ -1637,6 +1934,10 @@ document.getElementById('yearSelect').addEventListener('change', (e) => {
 });
 
 document.getElementById('signInBtn').addEventListener('click', () => {
+  if(!auth){
+    document.getElementById('authStatus').textContent = 'Cloud sign-in isn\'t available in this preview — open the hosted site to sign in.';
+    return;
+  }
   document.getElementById('authStatus').textContent = 'Opening Google sign-in…';
   // Redirect flow instead of a popup — popups are blocked or unreliable on
   // a lot of mobile browsers and in-app webviews. Redirect works the same
@@ -1646,7 +1947,7 @@ document.getElementById('signInBtn').addEventListener('click', () => {
   });
 });
 document.getElementById('signOutBtn').addEventListener('click', () => {
-  auth.signOut();
+  if(auth) auth.signOut();
 });
 
 function describeAuthError(err){
@@ -1659,31 +1960,41 @@ function describeAuthError(err){
   return 'Sign-in failed: ' + (err && err.message ? err.message : 'unknown error');
 }
 
-// Picks up the result after signInWithRedirect sends the browser back here.
-auth.getRedirectResult().catch(err => {
-  document.getElementById('authStatus').textContent = describeAuthError(err);
-});
+// Everything below is optional cloud sync — none of it should ever be able
+// to block the budget itself from loading and rendering, so it's all
+// guarded on auth existing, and loadState() (which builds the categories)
+// runs unconditionally, first, regardless of whether Firebase loaded.
+if(auth){
+  // Picks up the result after signInWithRedirect sends the browser back here.
+  auth.getRedirectResult().catch(err => {
+    document.getElementById('authStatus').textContent = describeAuthError(err);
+  });
 
-// Fires once immediately with whatever Firebase already knows (e.g. a
-// remembered session), then again on every future sign-in/sign-out.
-auth.onAuthStateChanged(async (user) => {
-  currentUser = user;
-  const statusEl = document.getElementById('authStatus');
-  const signInBtn = document.getElementById('signInBtn');
-  const signOutBtn = document.getElementById('signOutBtn');
-  if(user){
-    statusEl.textContent = `Signed in as ${user.email} — synced to your account.`;
-    statusEl.classList.add('signed-in');
-    signInBtn.style.display = 'none';
-    signOutBtn.style.display = 'inline-block';
-    await loadFromCloud();
-  } else {
-    statusEl.textContent = 'Not signed in — saving to this device only.';
-    statusEl.classList.remove('signed-in');
-    signInBtn.style.display = 'inline-block';
-    signOutBtn.style.display = 'none';
-  }
-});
+  // Fires once immediately with whatever Firebase already knows (e.g. a
+  // remembered session), then again on every future sign-in/sign-out.
+  auth.onAuthStateChanged(async (user) => {
+    currentUser = user;
+    const statusEl = document.getElementById('authStatus');
+    const signInBtn = document.getElementById('signInBtn');
+    const signOutBtn = document.getElementById('signOutBtn');
+    if(user){
+      statusEl.textContent = `Signed in as ${user.email} — synced to your account.`;
+      statusEl.classList.add('signed-in');
+      signInBtn.style.display = 'none';
+      signOutBtn.style.display = 'inline-block';
+      await loadFromCloud();
+    } else {
+      statusEl.textContent = 'Not signed in — saving to this device only.';
+      statusEl.classList.remove('signed-in');
+      signInBtn.style.display = 'inline-block';
+      signOutBtn.style.display = 'none';
+    }
+  });
+} else {
+  document.getElementById('authStatus').textContent = 'Cloud sync unavailable in this preview — saving to this device only.';
+  document.getElementById('signInBtn').style.display = 'none';
+  document.getElementById('signOutBtn').style.display = 'none';
+}
 
 const dismissBtn = document.getElementById('errorBannerClose');
 if(dismissBtn){
