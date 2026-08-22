@@ -716,10 +716,14 @@ const DEFAULT_CATS = [
 ];
 
 // Categories that are broken down into named line items instead of a single slider.
-const BREAKDOWN_KEYS = ['subs', 'donations', 'savings'];
+const BREAKDOWN_KEYS = ['housing', 'subs', 'donations', 'savings'];
 
 function defaultSubItems(){
   return {
+    housing: [
+      { id: 'h1', name: 'Rent / mortgage',                    amt: 1200 },
+      { id: 'h2', name: 'Utilities (electricity, water, gas, internet)', amt: 200 },
+    ],
     subs: [
       { id: 's1', name: 'Streaming (Netflix, Spotify, etc.)', amt: 25 },
       { id: 's2', name: 'Cloud storage & software',           amt: 10 },
@@ -883,6 +887,21 @@ function defaultState(){
   return s;
 }
 
+// Whenever a new category gets converted to a line-item breakdown (like
+// Housing just did), anyone with data saved from before that change has no
+// entry for it at all in subItems — which would otherwise crash the first
+// time it tries to render. This backfills a single line item using
+// whatever total was already there, so no one's existing number vanishes.
+function normalizeSubItemsShape(){
+  BREAKDOWN_KEYS.forEach(key => {
+    if(!Array.isArray(subItems[key])){
+      const existingTotal = (live && typeof live[key] === 'number') ? live[key] : 0;
+      subItemIdCounter++;
+      subItems[key] = [{ id: 'mig' + subItemIdCounter, name: key === 'housing' ? 'Rent / mortgage' : 'General', amt: existingTotal }];
+    }
+  });
+}
+
 // --- Local (this device) persistence — always available, works offline,
 // and is what loads instantly before any cloud round-trip finishes. ---
 function localGet(key){
@@ -922,6 +941,7 @@ function loadState(){
     saved = local.categories || defaultState();
     live = { ...saved };
     subItems = local.subItems || defaultSubItems();
+    normalizeSubItemsShape();
   } else {
     saved = null;
     live = defaultState();
@@ -990,6 +1010,7 @@ async function loadFromCloud(){
     saved = cloudBudget.categories || defaultState();
     live = { ...saved };
     subItems = cloudBudget.subItems || defaultSubItems();
+    normalizeSubItemsShape();
     localSet(STORAGE_KEY, cloudBudget);
     document.getElementById('income').value = income;
     document.getElementById('currencySelect').value = currency;
@@ -1104,7 +1125,7 @@ function buildCatRows(){
           </div>
         </div>
         <div class="subitem-list" id="subitems-${cat.key}"></div>
-        <button type="button" class="add-line-btn" id="addline-${cat.key}">+ add ${cat.key === 'subs' ? 'subscription' : cat.key === 'donations' ? 'cause' : 'savings goal'}</button>
+        <button type="button" class="add-line-btn" id="addline-${cat.key}">+ add ${cat.key === 'subs' ? 'subscription' : cat.key === 'donations' ? 'cause' : cat.key === 'housing' ? 'housing cost' : 'savings goal'}</button>
         <div class="cat-total-line"><span>Category total</span><b id="total-${cat.key}"></b></div>
         <div id="flag-${cat.key}"></div>
       `;
@@ -1421,6 +1442,7 @@ function loadMonthEntry(key){
   currency = entry.currency;
   live = { ...entry.categories };
   subItems = JSON.parse(JSON.stringify(entry.subItems));
+  normalizeSubItemsShape();
   document.getElementById('income').value = income;
   document.getElementById('currencySelect').value = currency;
   document.getElementById('currencySymbol').textContent = CURRENCIES[currency].symbol;
