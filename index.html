@@ -517,6 +517,13 @@
           <input type="checkbox" id="balancedToggle" style="accent-color:var(--mustard); width:14px; height:14px;">
           Balanced mode
         </label>
+        <label style="display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--text-mute);">
+          Compare against
+          <select id="compareBasisSelect" class="currency-select" style="font-size:11px; padding:6px 8px;">
+            <option value="saved" selected>My saved budget</option>
+            <option value="empty">Empty budget (start from zero)</option>
+          </select>
+        </label>
         <span id="saveStatus" style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); align-self:center; margin-left:4px;"></span>
       </div>
       <div id="balancedNote" style="display:none; padding: 0 18px 14px; font-family:var(--font-mono); font-size:11px; color:var(--mustard); line-height:1.5;">
@@ -893,6 +900,13 @@ function defaultState(){
   DEFAULT_CATS.forEach(c => s[c.key] = c.amt);
   return s;
 }
+
+function zeroState(){
+  const s = {};
+  DEFAULT_CATS.forEach(c => s[c.key] = 0);
+  return s;
+}
+let compareBasis = 'saved'; // 'saved' compares against your saved budget, 'empty' compares against zero
 
 // Whenever a new category gets converted to a line-item breakdown (like
 // Housing just did), anyone with data saved from before that change has no
@@ -1547,8 +1561,9 @@ function render(){
     document.getElementById(`pct-${c.key}`).textContent = pct.toFixed(0) + '%';
 
     const dEl = document.getElementById(`delta-${c.key}`);
-    if(saved){
-      const d = live[c.key] - saved[c.key];
+    const comparisonBase = compareBasis === 'empty' ? zeroState() : saved;
+    if(comparisonBase){
+      const d = live[c.key] - comparisonBase[c.key];
       dEl.textContent = fmtSigned(d);
       dEl.className = 'delta ' + (d>0?'up':d<0?'down':'flat');
     } else {
@@ -1662,7 +1677,9 @@ function render(){
 
   // compare strip
   const strip = document.getElementById('compareStrip');
-  if(saved){
+  if(compareBasis === 'empty'){
+    strip.innerHTML = `<span>Empty budget: <b>0.0%</b> savings rate</span><span>Live changes: <b style="color:${getComputedCssVar('--teal')}">+${t.savingsRate.toFixed(1)}pp</b></span>`;
+  } else if(saved){
     const savedIncome = income; // income not tracked separately per-save in this simple model beyond categories
     let savedTotal = 0; Object.values(saved).forEach(v=>savedTotal+=v);
     const savedLeftover = income - savedTotal;
@@ -1814,6 +1831,34 @@ function findByNameContains(list, keywords){
 // Every check here is plain arithmetic against well-known, widely-cited
 // personal-finance rules of thumb — no network call, no AI, so it works
 // identically everywhere this page loads, including a plain static host.
+// Suggests concrete cuts to close a monthly savings gap — only touches
+// discretionary categories (never Needs, Debt, or Savings itself), largest
+// first, and never suggests trimming more than half of any one category
+// so the plan stays realistic rather than zeroing things out.
+function suggestTrimPlan(gapPerMonth){
+  const discretionary = [
+    { key: 'dining',    name: 'Dining & Entertainment' },
+    { key: 'subs',      name: 'Subscriptions' },
+    { key: 'donations', name: 'Giving & Donations' },
+  ]
+    .map(c => ({ ...c, amount: live[c.key] || 0 }))
+    .filter(c => c.amount > 0)
+    .sort((a,b) => b.amount - a.amount);
+
+  let remaining = gapPerMonth;
+  const suggestions = [];
+  discretionary.forEach(c => {
+    if(remaining <= 0.5) return;
+    const maxTrim = c.amount * 0.5;
+    const trim = Math.min(maxTrim, remaining);
+    if(trim > 0.5){
+      suggestions.push({ name: c.name, trim });
+      remaining -= trim;
+    }
+  });
+  return { suggestions, remaining: Math.max(0, remaining) };
+}
+
 function runFinancialRulesCheck(){
   const results = [];
   const t = computeTotals();
@@ -1934,20 +1979,31 @@ function runFinancialRulesCheck(){
     });
   }
 
-  // 11. Stated goal feasibility, if amount + timeframe were given
+  // 11. Stated goal feasibility, if amount + timeframe were given — this is
+  // where "how do I actually do this?" gets answered with real numbers,
+  // not just a pass/fail against the required monthly figure.
   const goalAmount = Number(document.getElementById('goalAmount').value) || 0;
   const goalMonths = Number(document.getElementById('goalMonths').value) || 0;
   if(goalAmount > 0 && goalMonths > 0){
     const required = goalAmount / goalMonths;
     const current = t.effectiveSavings;
     const gap = required - current;
-    results.push({
-      rule: 'Your stated goal',
-      status: gap<=0.5 ? 'pass' : 'warn',
-      message: gap<=0.5
-        ? `On pace: ${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} needs ${fmt(required)}/month, and you're effectively saving ${fmt(current)}/month.`
-        : `${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} needs ${fmt(required)}/month — you're currently at ${fmt(current)}/month, a gap of ${fmt(gap)}/month to close.`
-    });
+    let message;
+    if(gap <= 0.5){
+      message = `On pace: ${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} needs ${fmt(required)}/month, and you're effectively saving ${fmt(current)}/month already — ${fmt(Math.abs(gap))}/month to spare.`;
+    } else {
+      const plan = suggestTrimPlan(gap);
+      if(plan.suggestions.length > 0){
+        const planText = plan.suggestions.map(s => `trim ${s.name} by ${fmt(s.trim)}/month`).join('; ');
+        message = `${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} needs ${fmt(required)}/month — you're at ${fmt(current)}/month, a gap of ${fmt(gap)}/month. To close it: ${planText}.`;
+        if(plan.remaining > 0.5){
+          message += ` That still leaves ${fmt(plan.remaining)}/month short — consider extending the timeframe, increasing income, or trimming Needs categories too.`;
+        }
+      } else {
+        message = `${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} needs ${fmt(required)}/month — a gap of ${fmt(gap)}/month, with little room left in Dining, Subscriptions, or Donations to trim. Consider extending the timeframe or reducing the target.`;
+      }
+    }
+    results.push({ rule: 'Your stated goal', status: gap<=0.5 ? 'pass' : 'warn', message });
   }
 
   // 12. Pay yourself first / lifestyle inflation guard — always shown
@@ -2024,6 +2080,10 @@ document.addEventListener('wheel', (e) => {
 document.getElementById('balancedToggle').addEventListener('change', (e) => {
   balancedMode = e.target.checked;
   document.getElementById('balancedNote').style.display = balancedMode ? 'block' : 'none';
+});
+document.getElementById('compareBasisSelect').addEventListener('change', (e) => {
+  compareBasis = e.target.value;
+  render();
 });
 document.getElementById('autoScaleToggle').addEventListener('change', (e) => {
   autoScaleMode = e.target.checked;
