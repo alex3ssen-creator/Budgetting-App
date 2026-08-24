@@ -707,7 +707,7 @@
 // Same Firebase project as the to-do app — budget data lives under its own
 // path (users/{uid}/budget/...) so the two apps never touch each other's data.
 const firebaseConfig = {
-  apiKey: "AIzaSyB8kdaaOi9JaXpwLzGpaKHLFNPblQdYiTc",
+  apiKey: "AIzaSyCy_iCyOmFFn6PJc_tQz_DPvWfEYpndOYY",
   authDomain: "to-do-application-5fc56.firebaseapp.com",
   projectId: "to-do-application-5fc56",
   storageBucket: "to-do-application-5fc56.firebasestorage.app",
@@ -2068,10 +2068,28 @@ document.getElementById('signInBtn').addEventListener('click', () => {
     return;
   }
   document.getElementById('authStatus').textContent = 'Opening Google sign-in…';
-  // Redirect flow instead of a popup — popups are blocked or unreliable on
-  // a lot of mobile browsers and in-app webviews. Redirect works the same
-  // way everywhere: it leaves the page, signs in, and comes straight back.
-  auth.signInWithRedirect(googleProvider).catch(err => {
+  // Popup first: a redirect trip depends on the browser preserving login
+  // state across a full navigation to Google and back, which is exactly
+  // what tracking-prevention features (Brave Shields, Edge Tracking
+  // Prevention, Safari ITP) are designed to interfere with — that's what
+  // was silently breaking sign-in. A popup never leaves the page at all,
+  // so there's no state to lose. Redirect only kicks in as a fallback,
+  // for the genuine popup-blocked case some mobile browsers still hit.
+  auth.signInWithPopup(googleProvider).catch(err => {
+    if(err && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment')){
+      document.getElementById('authStatus').textContent = 'Popup blocked — falling back to redirect sign-in…';
+      auth.signInWithRedirect(googleProvider).catch(err2 => {
+        document.getElementById('authStatus').textContent = describeAuthError(err2);
+      });
+      return;
+    }
+    if(err && err.code === 'auth/cancelled-popup-request'){
+      return; // user opened a second attempt before the first closed — not a real error
+    }
+    if(err && err.code === 'auth/popup-closed-by-user'){
+      document.getElementById('authStatus').textContent = 'Sign-in window closed before finishing — try again.';
+      return;
+    }
     document.getElementById('authStatus').textContent = describeAuthError(err);
   });
 });
@@ -2094,7 +2112,8 @@ function describeAuthError(err){
 // guarded on auth existing, and loadState() (which builds the categories)
 // runs unconditionally, first, regardless of whether Firebase loaded.
 if(auth){
-  // Picks up the result after signInWithRedirect sends the browser back here.
+  // Only relevant if signInWithRedirect ended up being used as the fallback
+  // above — picks up the result after it sends the browser back here.
   auth.getRedirectResult().catch(err => {
     document.getElementById('authStatus').textContent = describeAuthError(err);
   });
