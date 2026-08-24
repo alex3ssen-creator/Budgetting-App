@@ -129,9 +129,11 @@
   }
   .advisor-body textarea:focus-visible{ outline: 1px solid var(--mustard); outline-offset:1px; }
   .advisor-output{
-    margin-top: 14px; font-size: 13.5px; line-height: 1.6; white-space: pre-wrap;
+    margin-top: 14px; font-size: 13.5px; line-height: 1.6;
     color: var(--text);
   }
+  .advisor-output p{ margin: 0 0 14px; }
+  .advisor-output p:last-child{ margin-bottom: 0; }
   .advisor-output.muted{ color: var(--text-mute); font-family: var(--font-mono); font-size: 12px; }
   .advisor-disclaimer{
     font-family: var(--font-mono); font-size: 10.5px; color: var(--text-mute);
@@ -325,11 +327,10 @@
 
   .commentary{ font-size: 13.5px; line-height: 1.55; }
   .commentary p{ margin: 0 0 10px; }
-  .commentary .flag-line{
+  .flag-line{
     display:flex; gap:8px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.06);
   }
-  .flag-line b{ color: var(--rust); font-family: var(--font-mono); font-size:11px; flex-shrink:0; margin-top:2px;}
-  .flag-line.ok b{ color: var(--teal); }
+  .flag-line b{ font-family: var(--font-mono); font-size:11px; flex-shrink:0; margin-top:2px;}
 
   .compare-strip{
     margin-top: 16px; padding-top:14px; border-top: 1px solid var(--line);
@@ -518,6 +519,13 @@
           <input type="checkbox" id="balancedToggle" style="accent-color:var(--mustard); width:14px; height:14px;">
           Balanced mode
         </label>
+        <label style="display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--text-mute);">
+          Compare against
+          <select id="compareBasisSelect" class="currency-select" style="font-size:11px; padding:6px 8px;">
+            <option value="saved" selected>My saved budget</option>
+            <option value="empty">Empty budget (start from zero)</option>
+          </select>
+        </label>
         <span id="saveStatus" style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); align-self:center; margin-left:4px;"></span>
       </div>
       <div id="balancedNote" style="display:none; padding: 0 18px 14px; font-family:var(--font-mono); font-size:11px; color:var(--mustard); line-height:1.5;">
@@ -585,12 +593,15 @@
 
   <div class="panel" id="advisorPanel" style="margin-top:24px;">
     <div class="panel-head">
-      <h2>Ask about a goal</h2>
+      <h2>Financial rules checkup</h2>
     </div>
     <div class="advisor-body">
+      <p style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-mute); line-height:1.5; margin:0 0 14px;">
+        Checks your actual numbers against standard, well-known finance rules — 50/30/20, the 28/36 lending rule, emergency fund coverage, and more. No AI call, just maths — works the same everywhere, including on your live site.
+      </p>
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
         <div style="flex:1; min-width:150px;">
-          <label for="goalAmount" style="display:block; font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-mute); margin-bottom:4px;">Target amount (optional)</label>
+          <label for="goalAmount" style="display:block; font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-mute); margin-bottom:4px;">Goal amount (optional)</label>
           <div class="income-input-shell" style="width:100%;">
             <span id="goalAmountSymbol">€</span>
             <input type="number" id="goalAmount" min="0" step="10" placeholder="3000" style="width:100%; font-size:16px;">
@@ -602,11 +613,30 @@
             <input type="number" id="goalMonths" min="1" step="1" placeholder="8" style="width:100%; font-size:16px;">
           </div>
         </div>
+        <div style="flex:1; min-width:120px;">
+          <label for="checkupAge" style="display:block; font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-mute); margin-bottom:4px;">Your age (optional)</label>
+          <div class="income-input-shell" style="width:100%;">
+            <input type="number" id="checkupAge" min="0" step="1" placeholder="34" style="width:100%; font-size:16px;">
+          </div>
+        </div>
       </div>
-      <textarea id="goalInput" rows="2" placeholder="e.g. Save for a trip — what should I cut to get there faster?"></textarea>
-      <button class="primary" id="advisorBtn" style="margin-top:10px;">Get advice</button>
-      <div class="advisor-output muted" id="advisorOutput">Describe a goal — add an amount and timeframe above if you have one, so the required monthly figure gets calculated exactly rather than estimated.</div>
-      <div class="advisor-disclaimer">General guidance based on the numbers above, not licensed financial advice.</div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:6px;">
+        <button class="primary" id="advisorBtn">Run checkup</button>
+        <button id="aiAdvisorBtn">Ask AI advisor</button>
+        <button id="aiSetupToggle" style="background:none; border:none; color:var(--text-mute); font-family:var(--font-mono); font-size:11px; text-decoration:underline; cursor:pointer; padding:6px 2px;">AI advisor setup</button>
+      </div>
+      <div id="aiSetupPanel" style="display:none; margin-top:10px; padding:12px 14px; background:var(--ink); border:1px solid var(--line); border-radius:var(--radius);">
+        <p style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); line-height:1.5; margin:0 0 10px;">
+          "Ask AI advisor" calls your own Firebase Cloud Function, which keeps your Anthropic API key private on the server — it can't be called directly from this page since any key here would be visible to anyone who views the source. Paste your deployed function URL below once it's set up.
+        </p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <input type="text" id="aiEndpointInput" placeholder="https://your-region-yourproject.cloudfunctions.net/askAdvisor" style="flex:1; min-width:220px; background:var(--ink-2); border:1px solid var(--line); border-radius:var(--radius); color:var(--text); font-family:var(--font-mono); font-size:12px; padding:8px 10px;">
+          <button id="aiEndpointSaveBtn">Save</button>
+        </div>
+        <div id="aiEndpointStatus" style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-top:8px;">Not configured — "Ask AI advisor" will explain what's needed.</div>
+      </div>
+      <div class="advisor-output muted" id="advisorOutput">Fill in your budget above, optionally add a goal or your age, then run the checkup.</div>
+      <div class="advisor-disclaimer">General guidance based on standard financial rules of thumb, not licensed financial advice.</div>
     </div>
   </div>
 
@@ -886,6 +916,13 @@ function defaultState(){
   DEFAULT_CATS.forEach(c => s[c.key] = c.amt);
   return s;
 }
+
+function zeroState(){
+  const s = {};
+  DEFAULT_CATS.forEach(c => s[c.key] = 0);
+  return s;
+}
+let compareBasis = 'saved'; // 'saved' compares against your saved budget, 'empty' compares against zero
 
 // Whenever a new category gets converted to a line-item breakdown (like
 // Housing just did), anyone with data saved from before that change has no
@@ -1540,8 +1577,9 @@ function render(){
     document.getElementById(`pct-${c.key}`).textContent = pct.toFixed(0) + '%';
 
     const dEl = document.getElementById(`delta-${c.key}`);
-    if(saved){
-      const d = live[c.key] - saved[c.key];
+    const comparisonBase = compareBasis === 'empty' ? zeroState() : saved;
+    if(comparisonBase){
+      const d = live[c.key] - comparisonBase[c.key];
       dEl.textContent = fmtSigned(d);
       dEl.className = 'delta ' + (d>0?'up':d<0?'down':'flat');
     } else {
@@ -1651,11 +1689,13 @@ function render(){
   if(lines.length === 0){
     lines.push({ ok:true, tag:'STATUS', text: `Nothing here is flashing red right now. Keep it that way before you loosen anything.` });
   }
-  commentary.innerHTML = lines.map(l => `<div class="flag-line ${l.ok?'ok':''}"><b>${l.tag}</b><span>${l.text}</span></div>`).join('');
+  commentary.innerHTML = lines.map(l => `<div class="flag-line"><b style="color:${l.ok?'var(--teal)':'var(--rust)'};">${l.tag}</b><span>${l.text}</span></div>`).join('');
 
   // compare strip
   const strip = document.getElementById('compareStrip');
-  if(saved){
+  if(compareBasis === 'empty'){
+    strip.innerHTML = `<span>Empty budget: <b>0.0%</b> savings rate</span><span>Live changes: <b style="color:${getComputedCssVar('--teal')}">+${t.savingsRate.toFixed(1)}pp</b></span>`;
+  } else if(saved){
     const savedIncome = income; // income not tracked separately per-save in this simple model beyond categories
     let savedTotal = 0; Object.values(saved).forEach(v=>savedTotal+=v);
     const savedLeftover = income - savedTotal;
@@ -1800,98 +1840,149 @@ function exportCSV(){
   ta.select();
 }
 
-async function getAdvice(){
-  const goalText = document.getElementById('goalInput').value.trim();
+function findByNameContains(list, keywords){
+  return (list || []).find(item => keywords.some(k => item.name.toLowerCase().includes(k)));
+}
+
+// Every check here is plain arithmetic against well-known, widely-cited
+// personal-finance rules of thumb — no network call, no AI, so it works
+// identically everywhere this page loads, including a plain static host.
+// Suggests concrete cuts to close a monthly savings gap — only touches
+// discretionary categories (never Needs, Debt, or Savings itself), largest
+// first, and never suggests trimming more than half of any one category
+// so the plan stays realistic rather than zeroing things out.
+function suggestTrimPlan(gapPerMonth){
+  const discretionary = [
+    { key: 'dining',    name: 'Dining & Entertainment' },
+    { key: 'subs',      name: 'Subscriptions' },
+    { key: 'donations', name: 'Giving & Donations' },
+  ]
+    .map(c => ({ ...c, amount: live[c.key] || 0 }))
+    .filter(c => c.amount > 0)
+    .sort((a,b) => b.amount - a.amount);
+
+  let remaining = gapPerMonth;
+  const suggestions = [];
+  discretionary.forEach(c => {
+    if(remaining <= 0.5) return;
+    const maxTrim = c.amount * 0.5;
+    const trim = Math.min(maxTrim, remaining);
+    if(trim > 0.5){
+      suggestions.push({ name: c.name, trim });
+      remaining -= trim;
+    }
+  });
+  return { suggestions, remaining: Math.max(0, remaining) };
+}
+
+// Same underlying maths as before, but written as explained reasoning
+// rather than a checklist of rule names with pass/fail tags — each verdict
+// says what it is AND why, grounded in the person's actual numbers.
+function buildNarrativeAdvice(){
+  const t = computeTotals();
+  const paras = [];
+
+  const needsTotal = (live.housing||0) + (live.transport||0) + (live.groceries||0) + (live.insurance||0);
+  const wantsTotal = (live.subs||0) + (live.dining||0) + (live.donations||0);
+  const savingsPct = income > 0 ? (live.savings||0)/income*100 : 0;
+  const needsPct = income > 0 ? needsTotal/income*100 : 0;
+  const wantsPct = income > 0 ? wantsTotal/income*100 : 0;
+  const housingPct = income > 0 ? (live.housing||0)/income*100 : 0;
+  const dtiPct = income > 0 ? ((live.housing||0)+(live.debt||0))/income*100 : 0;
+  const transportPct = income > 0 ? (live.transport||0)/income*100 : 0;
+  const investTotal = (savingsAccounts.investments||[]).reduce((s,a) => s + (latestBalance(a)||0), 0);
+
+  // 1. Overall split
+  let splitLabel, splitColor;
+  if(needsPct<=52 && wantsPct<=32 && savingsPct>=18){ splitLabel = 'Balanced.'; splitColor = 'var(--teal)'; }
+  else if(needsPct>60 || dtiPct>40){ splitLabel = 'Stretched.'; splitColor = 'var(--rust)'; }
+  else { splitLabel = 'Workable, but tight.'; splitColor = 'var(--mustard)'; }
+  let splitP = `<p><b style="color:${splitColor}">${splitLabel}</b> Needs are ${needsPct.toFixed(0)}% of income, wants ${wantsPct.toFixed(0)}%, savings ${savingsPct.toFixed(0)}%. The reason needs above roughly 50% matters: it leaves less room to absorb a surprise bill or a rent increase without borrowing to cover it.`;
+  if(housingPct>28) splitP += ` Housing alone is ${housingPct.toFixed(0)}% of income — above the 28% line lenders use to judge affordability, worth knowing if you ever apply for credit.`;
+  if(dtiPct>36) splitP += ` Housing plus debt together comes to ${dtiPct.toFixed(0)}%, past the 36% ceiling most lenders use for approval.`;
+  paras.push(splitP + '</p>');
+
+  // 2. Emergency fund
+  const efAccount = findByNameContains(savingsAccounts.savings, ['emergency']);
+  if(efAccount){
+    const efBalance = latestBalance(efAccount) || 0;
+    const monthsCovered = needsTotal > 0 ? efBalance/needsTotal : 0;
+    let efLabel, efColor;
+    if(monthsCovered>=3){ efLabel='Covered.'; efColor='var(--teal)'; }
+    else if(monthsCovered>=1){ efLabel='Getting there.'; efColor='var(--mustard)'; }
+    else { efLabel='Exposed.'; efColor='var(--rust)'; }
+    paras.push(`<p><b style="color:${efColor}">${efLabel}</b> Your Emergency fund covers about ${monthsCovered.toFixed(1)} months of essential spending (${fmt(needsTotal)}/month across Housing, Transport, Groceries & Insurance). The usual 3–6 month target comes from how long the average job search actually takes — less than that, and a layoff forces you into debt just to cover the basics.</p>`);
+  } else {
+    paras.push(`<p><b style="color:var(--text-mute)">No emergency fund tracked.</b> Add an account named "Emergency fund" under Savings & Investments so this can actually be checked against 3–6 months of essential spending.</p>`);
+  }
+
+  // 3. Debt
+  if((live.debt||0) > 0){
+    paras.push(`<p>You're putting ${fmt(live.debt)}/month toward debt. If that's spread across more than one balance: paying the highest-interest one first (the "avalanche" method) is mathematically the cheapest route, even though paying off the smallest balance first ("snowball") often feels more motivating. Pick whichever you'll actually stick with — the math only helps if the plan survives contact with real life.</p>`);
+  }
+
+  // 4. Retirement
+  const retirementItem = findByNameContains(subItems.savings, ['pension', 'retirement']);
+  if(retirementItem){
+    const retPct = income > 0 ? retirementItem.amt/income*100 : 0;
+    let retLabel, retColor;
+    if(retPct>=15){ retLabel='On track.'; retColor='var(--teal)'; }
+    else if(retPct>=8){ retLabel='Behind, not badly.'; retColor='var(--mustard)'; }
+    else { retLabel='Well behind.'; retColor='var(--rust)'; }
+    let retP = `<p><b style="color:${retColor}">${retLabel}</b> "${retirementItem.name}" is ${retPct.toFixed(1)}% of income. The ~15% target (employer match included) comes from research on what it actually takes to hold your standard of living once income stops.`;
+    if(investTotal>0) retP += ` Separately, your ${fmt(investTotal)} in tracked Investments would sustain roughly ${fmt(investTotal*0.04/12)}/month under the 4% withdrawal rule if drawn on today — illustrative only, not a real retirement plan.`;
+    paras.push(retP + '</p>');
+  }
+
+  // 5. Everyday spending — transportation
+  if(transportPct > 10){
+    paras.push(`<p>Transportation is ${transportPct.toFixed(0)}% of income, above the roughly 10% ceiling most car-buying guidance uses (alongside a ≥20% down payment and a loan no longer than 4 years, if financing). Worth asking whether the car is quietly costing you the retirement contribution above.</p>`);
+  }
+
+  // 6. Age-based context — only if an age was entered
+  const age = Number(document.getElementById('checkupAge').value) || 0;
+  if(age > 0){
+    const stockPct = Math.max(0, Math.min(100, 100 - age));
+    const annualIncome = income * 12;
+    const milestone = age<=30 ? {age:30, mult:1} : age<=40 ? {age:40, mult:3} : age<=50 ? {age:50, mult:6} : age<=60 ? {age:60, mult:8} : {age:67, mult:10};
+    const targetAmt = annualIncome * milestone.mult;
+    const mileLabel = investTotal>=targetAmt ? 'Ahead of the typical pace.' : 'Behind the typical pace.';
+    const mileColor = investTotal>=targetAmt ? 'var(--teal)' : 'var(--mustard)';
+    paras.push(`<p><b style="color:${mileColor}">${mileLabel}</b> At ${age}, a common guideline is roughly ${milestone.mult}× annual income saved for retirement by ${milestone.age} — about ${fmt(targetAmt)} at your current income. Your tracked Investments total ${fmt(investTotal)}. As a rough asset-allocation reference at this age, ${stockPct}% stocks / ${100-stockPct}% bonds is the traditional split (some use 110-minus-age or 120-minus-age instead, for a more aggressive tilt).</p>`);
+  }
+
+  // 7. Stated goal — this is where "how do I actually do this?" gets a
+  // real, numbers-backed plan rather than just a feasibility verdict.
   const goalAmount = Number(document.getElementById('goalAmount').value) || 0;
   const goalMonths = Number(document.getElementById('goalMonths').value) || 0;
-  const output = document.getElementById('advisorOutput');
-  const btn = document.getElementById('advisorBtn');
-
-  if(!goalText && !(goalAmount > 0 && goalMonths > 0)){
-    output.className = 'advisor-output muted';
-    output.textContent = 'Describe a goal, or fill in a target amount and timeframe, so there is something to work from.';
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = 'Thinking…';
-  output.className = 'advisor-output muted';
-  output.textContent = 'Reviewing your categories…';
-
-  try{
-    const t = computeTotals();
-    const v = verdict(t.savingsRate, t.leftover);
-    const lines = DEFAULT_CATS.map(c => {
-      const pct = income > 0 ? (live[c.key]/income*100).toFixed(0) : '0';
-      let line = `- ${c.name}: ${fmt(live[c.key])} (${pct}% of income)`;
-      if(BREAKDOWN_KEYS.includes(c.key)){
-        const items = subItems[c.key].map(i => `${i.name} ${fmt(i.amt)}`).join(', ');
-        if(items) line += ` — made up of: ${items}`;
+  if(goalAmount > 0 && goalMonths > 0){
+    const required = goalAmount / goalMonths;
+    const current = t.effectiveSavings;
+    const gap = required - current;
+    if(gap <= 0.5){
+      paras.push(`<p><b style="color:var(--teal)">On pace.</b> ${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} needs ${fmt(required)}/month, and you're already saving ${fmt(current)}/month — ${fmt(Math.abs(gap))} to spare. No changes needed to hit this.</p>`);
+    } else {
+      const plan = suggestTrimPlan(gap);
+      let planSentence;
+      if(plan.suggestions.length > 0){
+        planSentence = ' The way to close it: ' + plan.suggestions.map(s => `trim ${s.name} by ${fmt(s.trim)}/month`).join(', then ') + '.';
+        if(plan.remaining > 0.5) planSentence += ` Even after that, you're ${fmt(plan.remaining)}/month short — either stretch the timeline, bring in more income, or look at Needs categories too.`;
+      } else {
+        planSentence = " There's not much room left in Dining, Subscriptions, or Donations to trim — extending the timeline is probably the realistic move.";
       }
-      return line;
-    }).join('\n');
-
-    // Do the arithmetic here in JS rather than asking the model to parse
-    // and calculate it from prose — that's exactly where AI money advice
-    // tends to go wrong. The model gets the finished numbers and reasons
-    // about what to do with them, not how to compute them.
-    let goalMathBlock = '';
-    if(goalAmount > 0 && goalMonths > 0){
-      const requiredMonthly = goalAmount / goalMonths;
-      const currentSurplus = t.effectiveSavings;
-      const gap = requiredMonthly - currentSurplus;
-      goalMathBlock = `\nGoal math (already calculated — use these figures exactly, do not recompute them):\n`
-        + `Target: ${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'}\n`
-        + `Required monthly savings: ${fmt(requiredMonthly)}\n`
-        + `Currently available per month at this budget: ${fmt(currentSurplus)}\n`
-        + (gap > 0.5
-            ? `Monthly shortfall: ${fmt(gap)} still needs to be found.\n`
-            : `This is already on pace — ${fmt(Math.abs(gap))} per month to spare.\n`);
+      paras.push(`<p><b style="color:var(--mustard)">Needs a plan.</b> ${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} needs ${fmt(required)}/month. You're at ${fmt(current)}/month, a gap of ${fmt(gap)}/month.${planSentence}</p>`);
     }
-
-    const prompt = `You are a direct, practical personal finance coach reviewing someone's real monthly budget. Be specific to the numbers given, not generic advice. Keep the reply under 180 words. Plain prose or a short list, no markdown headers, no disclaimers about not being a financial advisor.
-
-Monthly income: ${fmt(income)}
-${lines}
-Effective savings rate: ${t.savingsRate.toFixed(1)}%
-Current status: ${v.label}
-${goalMathBlock}
-Their goal, in their own words: "${goalText || '(no description given, just the target and timeframe above)'}"
-
-Give 3-5 concrete, prioritized actions for reaching this goal using their actual categories and amounts above. If a monthly shortfall is listed, name specific categories to trim and by roughly how much to close it. If it's already on pace, say so and suggest what to do with the spare amount. If no goal math was given, use the categories to judge realism yourself and say so plainly.`;
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-
-    let data;
-    try{ data = await response.json(); }catch(parseErr){ data = null; }
-
-    if(!response.ok){
-      const msg = data && data.error && data.error.message ? data.error.message : `Request failed (${response.status})`;
-      output.className = 'advisor-output muted';
-      output.textContent = `The advisor couldn't respond just now: ${msg}. Try again in a moment.`;
-      return;
-    }
-
-    const text = data && Array.isArray(data.content)
-      ? data.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim()
-      : '';
-    output.className = 'advisor-output';
-    output.textContent = text || 'The advisor responded with nothing usable — try rephrasing the goal and asking again.';
-  }catch(e){
-    output.className = 'advisor-output muted';
-    output.textContent = 'Could not reach the advisor just now. Check your connection and try again.';
-  }finally{
-    btn.disabled = false;
-    btn.textContent = 'Get advice';
   }
+
+  paras.push(`<p style="color:var(--text-mute); font-size:12px;">One habit worth keeping regardless of any of the above: when income rises, move at least the same proportion into Savings before spending more elsewhere. That's the single biggest thing that quietly protects a raise from disappearing into lifestyle creep.</p>`);
+
+  return paras.join('');
+}
+
+function runCheckup(){
+  const output = document.getElementById('advisorOutput');
+  output.className = 'advisor-output';
+  output.innerHTML = buildNarrativeAdvice();
 }
 
 document.getElementById('income').addEventListener('input', () => {
@@ -1943,6 +2034,10 @@ document.getElementById('balancedToggle').addEventListener('change', (e) => {
   balancedMode = e.target.checked;
   document.getElementById('balancedNote').style.display = balancedMode ? 'block' : 'none';
 });
+document.getElementById('compareBasisSelect').addEventListener('change', (e) => {
+  compareBasis = e.target.value;
+  render();
+});
 document.getElementById('autoScaleToggle').addEventListener('change', (e) => {
   autoScaleMode = e.target.checked;
   document.getElementById('scaleBasisSelect').style.display = autoScaleMode ? 'inline-block' : 'none';
@@ -1961,7 +2056,7 @@ document.getElementById('currencySelect').addEventListener('change', (e) => {
 });
 document.getElementById('addSavingsAccountBtn').addEventListener('click', () => addAccount('savings'));
 document.getElementById('addInvestmentAccountBtn').addEventListener('click', () => addAccount('investments'));
-document.getElementById('advisorBtn').addEventListener('click', getAdvice);
+document.getElementById('advisorBtn').addEventListener('click', runCheckup);
 document.getElementById('yearSelect').addEventListener('change', (e) => {
   selectedYear = e.target.value;
   renderYearOverview();
