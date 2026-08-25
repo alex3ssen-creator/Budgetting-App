@@ -76,6 +76,20 @@
 
   .budget-savings-footer .rate-big{ font-family: var(--font-display); font-weight:700; }
 
+  .reminder-banner{
+    display:flex; align-items:center; justify-content:space-between; gap:14px;
+    flex-wrap:wrap; background: rgba(217,164,65,0.1); border:1px solid var(--mustard-dim);
+    border-radius: var(--radius); padding:12px 16px; margin-bottom:20px;
+    font-family: var(--font-mono); font-size:12px; color: var(--text);
+  }
+  .reminder-banner button{
+    font-family: var(--font-mono); font-size:11px; letter-spacing:0.04em;
+    padding: 6px 12px; border-radius: var(--radius); cursor:pointer;
+    border: 1px solid var(--mustard); background: none; color: var(--mustard);
+  }
+  .reminder-banner button:hover{ background: rgba(217,164,65,0.15); }
+  .reminder-banner button#reminderDismissBtn{ border-color: var(--line); color: var(--text-mute); }
+
   .eyebrow{
     font-family: var(--font-mono);
     font-size: 11px;
@@ -277,7 +291,7 @@
 
   /* ---------- Sub-item breakdown (subscriptions / savings) ---------- */
   .subitem-list{ margin-top: 8px; display:flex; flex-direction:column; gap:7px; }
-  .subitem-row{ display:flex; align-items:center; gap:7px; }
+  .subitem-row{ display:flex; align-items:center; gap:7px; flex-wrap: wrap; }
   .subitem-row input[type=text]{
     flex:1; min-width:0; background: var(--ink); border:1px solid var(--line);
     border-radius: var(--radius); color: var(--text); font-family: var(--font-body);
@@ -289,6 +303,11 @@
     font-size: 12.5px; padding: 6px 6px; text-align:right;
   }
   .subitem-row input:focus-visible{ outline: 1px solid var(--mustard); outline-offset:1px; }
+  .link-account-select{
+    max-width: 130px; background: var(--ink); border:1px solid var(--line);
+    border-radius: var(--radius); color: var(--text-mute); font-family: var(--font-mono);
+    font-size: 11px; padding: 6px 4px; flex-shrink:0;
+  }
   .subitem-remove{
     background:none; border:1px solid var(--line); color: var(--text-mute);
     width:26px; height:26px; flex-shrink:0; padding:0; border-radius: var(--radius);
@@ -485,6 +504,14 @@
   <div class="page-nav">
     <button type="button" class="page-nav-btn active" id="navBudgetBtn">Budget</button>
     <button type="button" class="page-nav-btn" id="navSavingsBtn">Savings &amp; Overview</button>
+  </div>
+
+  <div class="reminder-banner" id="reminderBanner" style="display:none;">
+    <span id="reminderText"></span>
+    <div style="display:flex; gap:8px; flex-shrink:0;">
+      <button type="button" id="reminderGoBtn">Update now</button>
+      <button type="button" id="reminderDismissBtn">Dismiss</button>
+    </div>
   </div>
 
   <div id="pageBudget">
@@ -1091,6 +1118,41 @@ function normalizeSavingsData(raw){
 function loadSavingsLogLocal(){
   savingsAccounts = normalizeSavingsData(localGet(SAVINGS_LOG_KEY));
   renderSavingsAccounts();
+  checkMonthlyReminder();
+}
+
+// A practical, no-infrastructure reminder: checks whether ANY savings or
+// investment account has been updated this calendar month, and if not,
+// shows a dismissible banner. This is an in-page check, not a real push
+// notification — it only appears while you have the app open. A true
+// notification that arrives even when the browser's closed would need a
+// service worker plus a small scheduled backend (similar in scope to the
+// bank-connection Cloud Functions) — worth doing as a separate project if
+// this in-app version isn't enough on its own.
+function checkMonthlyReminder(){
+  const thisMonth = currentMonthKey();
+  const dismissKey = 'ledger-review-reminder-dismissed-' + thisMonth;
+  if(localGet(dismissKey)){
+    document.getElementById('reminderBanner').style.display = 'none';
+    return;
+  }
+
+  const allAccounts = [...(savingsAccounts.savings||[]), ...(savingsAccounts.investments||[])];
+  const allDates = allAccounts.flatMap(a => (a.log||[]).map(e => e.date));
+  const mostRecentMonth = allDates.length > 0
+    ? allDates.reduce((max, d) => (d > max ? d : max), allDates[0]).slice(0, 7)
+    : null;
+
+  const banner = document.getElementById('reminderBanner');
+  if(mostRecentMonth === thisMonth){
+    banner.style.display = 'none';
+    return;
+  }
+
+  document.getElementById('reminderText').textContent = mostRecentMonth
+    ? `You haven't updated your total savings & investments since ${monthLabel(mostRecentMonth)} — worth a quick check this month.`
+    : `You haven't logged your total savings & investments yet — add your current balances to start tracking.`;
+  banner.style.display = 'flex';
 }
 
 // Runs once per sign-in, after Firebase confirms who's signed in. Cloud
@@ -1129,6 +1191,7 @@ async function loadFromCloud(){
     localSet(SAVINGS_LOG_KEY, savingsAccounts);
   }
   renderSavingsAccounts();
+  checkMonthlyReminder();
 }
 
 async function saveState(){
@@ -1280,20 +1343,44 @@ function applyLockState(){
   });
 }
 
+function buildAccountOptionsHtml(selectedId){
+  let html = `<option value="">— auto-match by name —</option>`;
+  if((savingsAccounts.savings||[]).length){
+    html += `<optgroup label="Savings accounts">`;
+    savingsAccounts.savings.forEach(a => {
+      html += `<option value="${a.id}" ${a.id===selectedId?'selected':''}>${a.name.replace(/"/g,'&quot;')}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+  if((savingsAccounts.investments||[]).length){
+    html += `<optgroup label="Investments">`;
+    savingsAccounts.investments.forEach(a => {
+      html += `<option value="${a.id}" ${a.id===selectedId?'selected':''}>${a.name.replace(/"/g,'&quot;')}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+  return html;
+}
+
 function renderSubItemRows(key){
   const container = document.getElementById(`subitems-${key}`);
   container.innerHTML = '';
   subItems[key].forEach(item => {
     const row = document.createElement('div');
     row.className = 'subitem-row';
+    const linkSelectHtml = key === 'savings'
+      ? `<select class="link-account-select" aria-label="Link to account">${buildAccountOptionsHtml(item.linkedAccountId)}</select>`
+      : '';
     row.innerHTML = `
       <input type="text" value="${item.name.replace(/"/g,'&quot;')}" aria-label="Line item name">
       <input type="number" value="${item.amt}" min="0" step="5" aria-label="Line item amount">
+      ${linkSelectHtml}
       <button type="button" class="subitem-remove" aria-label="Remove ${item.name.replace(/"/g,'&quot;')}">×</button>
     `;
     container.appendChild(row);
     const [nameInput, amtInput] = row.querySelectorAll('input');
     const removeBtn = row.querySelector('.subitem-remove');
+    const linkSelect = row.querySelector('.link-account-select');
 
     nameInput.addEventListener('input', () => { item.name = nameInput.value; });
     amtInput.addEventListener('input', () => {
@@ -1303,13 +1390,18 @@ function renderSubItemRows(key){
       reconcileSubItems(key);
       render();
     });
+    if(linkSelect){
+      linkSelect.addEventListener('change', () => {
+        item.linkedAccountId = linkSelect.value || null;
+      });
+    }
     removeBtn.addEventListener('click', () => removeSubItem(key, item.id));
   });
 }
 
 function addSubItem(key){
   subItemIdCounter++;
-  subItems[key].push({ id: 'x' + subItemIdCounter, name: 'New item', amt: 0 });
+  subItems[key].push({ id: 'x' + subItemIdCounter, name: 'New item', amt: 0, linkedAccountId: null });
   renderSubItemRows(key);
   applyLockState();
   render();
@@ -1450,7 +1542,13 @@ function applySavingsContributions(monthKey){
   const updatedNames = [];
 
   budgetSavingsItems.forEach(item => {
-    const match = allAccounts.find(a => a.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+    let match = null;
+    if(item.linkedAccountId){
+      match = allAccounts.find(a => a.id === item.linkedAccountId);
+    }
+    if(!match){
+      match = allAccounts.find(a => a.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+    }
     if(!match) return;
     ensureContributionsField(match);
     const previouslyApplied = match.contributionsApplied[monthKey] || 0;
@@ -2092,4 +2190,184 @@ document.getElementById('income').addEventListener('input', () => {
   lastIncomeForScale = newIncome;
   render();
 });
-document.getElementById('s
+document.getElementById('saveBtn').addEventListener('click', saveState);
+document.getElementById('revertBtn').addEventListener('click', revert);
+document.getElementById('exportBtn').addEventListener('click', exportCSV);
+document.getElementById('csvCopyBtn').addEventListener('click', async () => {
+  const ta = document.getElementById('csvTextarea');
+  const btn = document.getElementById('csvCopyBtn');
+  ta.focus();
+  ta.select();
+  let copied = false;
+  try{
+    await navigator.clipboard.writeText(ta.value);
+    copied = true;
+  }catch(e){
+    try{ copied = document.execCommand('copy'); }catch(e2){ copied = false; }
+  }
+  btn.textContent = copied ? 'Copied!' : 'Select all & Ctrl+C';
+  setTimeout(() => { btn.textContent = 'Copy to clipboard'; }, 2200);
+});
+document.getElementById('csvCloseBtn').addEventListener('click', () => {
+  document.getElementById('csvModal').classList.remove('open');
+});
+document.getElementById('csvModal').addEventListener('click', (e) => {
+  if(e.target.id === 'csvModal') document.getElementById('csvModal').classList.remove('open');
+});
+document.getElementById('lockToggle').addEventListener('click', () => {
+  locked = !locked;
+  document.getElementById('lockToggle').textContent = locked ? 'Unlock budget' : 'Lock budget';
+  applyLockState();
+});
+// Browsers change a focused number input's value on mouse-wheel scroll —
+// this is almost certainly why numbers were shifting while scrolling.
+// Blur the field the instant a wheel event reaches it so scrolling just scrolls.
+document.addEventListener('wheel', (e) => {
+  if(e.target && e.target.tagName === 'INPUT' && e.target.type === 'number'){
+    e.target.blur();
+  }
+}, { passive: true });
+document.getElementById('balancedToggle').addEventListener('change', (e) => {
+  balancedMode = e.target.checked;
+  document.getElementById('balancedNote').style.display = balancedMode ? 'block' : 'none';
+});
+document.getElementById('compareBasisSelect').addEventListener('change', (e) => {
+  compareBasis = e.target.value;
+  render();
+});
+document.getElementById('autoScaleToggle').addEventListener('change', (e) => {
+  autoScaleMode = e.target.checked;
+  document.getElementById('scaleBasisSelect').style.display = autoScaleMode ? 'inline-block' : 'none';
+  document.getElementById('autoScaleNote').style.display = autoScaleMode ? 'block' : 'none';
+  lastIncomeForScale = income;
+});
+document.getElementById('scaleBasisSelect').addEventListener('change', (e) => {
+  scaleBasis = e.target.value;
+});
+document.getElementById('currencySelect').addEventListener('change', (e) => {
+  currency = e.target.value;
+  document.getElementById('currencySymbol').textContent = CURRENCIES[currency].symbol;
+  document.getElementById('goalAmountSymbol').textContent = CURRENCIES[currency].symbol;
+  render();
+  renderSavingsAccounts();
+});
+document.getElementById('addSavingsAccountBtn').addEventListener('click', () => addAccount('savings'));
+document.getElementById('addInvestmentAccountBtn').addEventListener('click', () => addAccount('investments'));
+document.getElementById('advisorBtn').addEventListener('click', runCheckup);
+document.getElementById('yearSelect').addEventListener('change', (e) => {
+  selectedYear = e.target.value;
+  renderYearOverview();
+});
+
+document.getElementById('signInBtn').addEventListener('click', () => {
+  if(!auth){
+    document.getElementById('authStatus').textContent = 'Cloud sign-in isn\'t available in this preview — open the hosted site to sign in.';
+    return;
+  }
+  document.getElementById('authStatus').textContent = 'Opening Google sign-in…';
+  // Popup first: a redirect trip depends on the browser preserving login
+  // state across a full navigation to Google and back, which is exactly
+  // what tracking-prevention features (Brave Shields, Edge Tracking
+  // Prevention, Safari ITP) are designed to interfere with — that's what
+  // was silently breaking sign-in. A popup never leaves the page at all,
+  // so there's no state to lose. Redirect only kicks in as a fallback,
+  // for the genuine popup-blocked case some mobile browsers still hit.
+  auth.signInWithPopup(googleProvider).catch(err => {
+    if(err && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment')){
+      document.getElementById('authStatus').textContent = 'Popup blocked — falling back to redirect sign-in…';
+      auth.signInWithRedirect(googleProvider).catch(err2 => {
+        document.getElementById('authStatus').textContent = describeAuthError(err2);
+      });
+      return;
+    }
+    if(err && err.code === 'auth/cancelled-popup-request'){
+      return; // user opened a second attempt before the first closed — not a real error
+    }
+    if(err && err.code === 'auth/popup-closed-by-user'){
+      document.getElementById('authStatus').textContent = 'Sign-in window closed before finishing — try again.';
+      return;
+    }
+    document.getElementById('authStatus').textContent = describeAuthError(err);
+  });
+});
+document.getElementById('signOutBtn').addEventListener('click', () => {
+  if(auth) auth.signOut();
+});
+
+function describeAuthError(err){
+  if(err && err.code === 'auth/unauthorized-domain'){
+    return "This page's domain isn't authorized for sign-in yet — add it under Firebase Console → Authentication → Settings → Authorized domains.";
+  }
+  if(err && err.code === 'auth/operation-not-supported-in-this-environment'){
+    return 'Google blocks sign-in inside embedded app browsers — open this page in your normal browser (Safari/Chrome), not from inside another app.';
+  }
+  return 'Sign-in failed: ' + (err && err.message ? err.message : 'unknown error');
+}
+
+// Everything below is optional cloud sync — none of it should ever be able
+// to block the budget itself from loading and rendering, so it's all
+// guarded on auth existing, and loadState() (which builds the categories)
+// runs unconditionally, first, regardless of whether Firebase loaded.
+if(auth){
+  // Only relevant if signInWithRedirect ended up being used as the fallback
+  // above — picks up the result after it sends the browser back here.
+  auth.getRedirectResult().catch(err => {
+    document.getElementById('authStatus').textContent = describeAuthError(err);
+  });
+
+  // Fires once immediately with whatever Firebase already knows (e.g. a
+  // remembered session), then again on every future sign-in/sign-out.
+  auth.onAuthStateChanged(async (user) => {
+    currentUser = user;
+    const statusEl = document.getElementById('authStatus');
+    const signInBtn = document.getElementById('signInBtn');
+    const signOutBtn = document.getElementById('signOutBtn');
+    if(user){
+      statusEl.textContent = `Signed in as ${user.email} — synced to your account.`;
+      statusEl.classList.add('signed-in');
+      signInBtn.style.display = 'none';
+      signOutBtn.style.display = 'inline-block';
+      await loadFromCloud();
+    } else {
+      statusEl.textContent = 'Not signed in — saving to this device only.';
+      statusEl.classList.remove('signed-in');
+      signInBtn.style.display = 'inline-block';
+      signOutBtn.style.display = 'none';
+    }
+  });
+} else {
+  document.getElementById('authStatus').textContent = 'Cloud sync unavailable in this preview — saving to this device only.';
+  document.getElementById('signInBtn').style.display = 'none';
+  document.getElementById('signOutBtn').style.display = 'none';
+}
+
+const dismissBtn = document.getElementById('errorBannerClose');
+if(dismissBtn){
+  dismissBtn.addEventListener('click', () => {
+    document.getElementById('errorBanner').classList.remove('show');
+  });
+}
+
+function switchPage(page){
+  const isBudget = page === 'budget';
+  document.getElementById('pageBudget').style.display = isBudget ? '' : 'none';
+  document.getElementById('pageSavings').style.display = isBudget ? 'none' : '';
+  document.getElementById('navBudgetBtn').classList.toggle('active', isBudget);
+  document.getElementById('navSavingsBtn').classList.toggle('active', !isBudget);
+}
+document.getElementById('navBudgetBtn').addEventListener('click', () => switchPage('budget'));
+document.getElementById('navSavingsBtn').addEventListener('click', () => switchPage('savings'));
+document.getElementById('goToSavingsPageBtn').addEventListener('click', () => switchPage('savings'));
+document.getElementById('reminderGoBtn').addEventListener('click', () => {
+  switchPage('savings');
+  document.getElementById('reminderBanner').style.display = 'none';
+});
+document.getElementById('reminderDismissBtn').addEventListener('click', () => {
+  localSet('ledger-review-reminder-dismissed-' + currentMonthKey(), true);
+  document.getElementById('reminderBanner').style.display = 'none';
+});
+
+loadState();
+</script>
+</body>
+</html>
