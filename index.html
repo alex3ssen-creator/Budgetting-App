@@ -2182,6 +2182,98 @@ function runCheckup(){
   output.innerHTML = buildNarrativeAdvice();
 }
 
+const AI_ENDPOINT_KEY = 'ledger-review-ai-endpoint';
+
+function loadAiEndpoint(){
+  const saved = localGet(AI_ENDPOINT_KEY);
+  const endpoint = typeof saved === 'string' ? saved : '';
+  document.getElementById('aiEndpointInput').value = endpoint;
+  document.getElementById('aiEndpointStatus').textContent = endpoint
+    ? `Configured: ${endpoint}`
+    : 'Not configured — "Ask AI advisor" will explain what\'s needed.';
+  return endpoint;
+}
+
+function buildAdvisorPrompt(){
+  const t = computeTotals();
+  const v = verdict(t.savingsRate, t.leftover);
+  const lines = DEFAULT_CATS.map(c => {
+    const pct = income > 0 ? (live[c.key]/income*100).toFixed(0) : '0';
+    let line = `- ${c.name}: ${fmt(live[c.key])} (${pct}% of income)`;
+    if(BREAKDOWN_KEYS.includes(c.key)){
+      const items = subItems[c.key].map(i => `${i.name} ${fmt(i.amt)}`).join(', ');
+      if(items) line += ` — made up of: ${items}`;
+    }
+    return line;
+  }).join('\n');
+
+  const goalAmount = Number(document.getElementById('goalAmount').value) || 0;
+  const goalMonths = Number(document.getElementById('goalMonths').value) || 0;
+  let goalBlock = '';
+  if(goalAmount > 0 && goalMonths > 0){
+    const required = goalAmount / goalMonths;
+    goalBlock = `\nStated goal: ${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} (needs ${fmt(required)}/month).`;
+  }
+
+  return `You are a direct, practical personal finance coach reviewing someone's real monthly budget. Be specific to the numbers given, not generic advice. Keep the reply under 200 words, plain prose, no markdown headers.
+
+Monthly income: ${fmt(income)}
+${lines}
+Effective savings rate: ${t.savingsRate.toFixed(1)}%
+Current status: ${v.label}${goalBlock}
+
+Give a short, honest assessment and 3-5 concrete, prioritized actions using their actual categories and amounts above.`;
+}
+
+async function askAiAdvisor(){
+  const output = document.getElementById('advisorOutput');
+  const btn = document.getElementById('aiAdvisorBtn');
+  const endpoint = loadAiEndpoint();
+
+  if(!endpoint){
+    output.className = 'advisor-output muted';
+    output.textContent = 'No AI advisor endpoint configured yet — click "AI advisor setup" above to add your deployed Cloud Function URL.';
+    return;
+  }
+  if(!auth || !currentUser){
+    output.className = 'advisor-output muted';
+    output.textContent = 'Sign in with Google first — the AI advisor requires a signed-in account so it can\'t be called by anyone who isn\'t you.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Thinking…';
+  output.className = 'advisor-output muted';
+  output.textContent = 'Reviewing your categories…';
+
+  try{
+    const idToken = await currentUser.getIdToken();
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      body: JSON.stringify({ prompt: buildAdvisorPrompt() })
+    });
+    let data;
+    try{ data = await response.json(); }catch(e){ data = null; }
+
+    if(!response.ok){
+      const msg = data && data.error ? data.error : `Request failed (${response.status})`;
+      output.className = 'advisor-output muted';
+      output.textContent = `The AI advisor couldn't respond: ${msg}`;
+      return;
+    }
+
+    output.className = 'advisor-output';
+    output.textContent = (data && data.text) ? data.text : 'The advisor responded with nothing usable — try again.';
+  }catch(e){
+    output.className = 'advisor-output muted';
+    output.textContent = 'Could not reach the AI advisor endpoint. Check the URL is correct and the function is deployed.';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Ask AI advisor';
+  }
+}
+
 document.getElementById('income').addEventListener('input', () => {
   const newIncome = Number(document.getElementById('income').value) || 0;
   if(autoScaleMode && newIncome !== lastIncomeForScale){
@@ -2254,6 +2346,17 @@ document.getElementById('currencySelect').addEventListener('change', (e) => {
 document.getElementById('addSavingsAccountBtn').addEventListener('click', () => addAccount('savings'));
 document.getElementById('addInvestmentAccountBtn').addEventListener('click', () => addAccount('investments'));
 document.getElementById('advisorBtn').addEventListener('click', runCheckup);
+document.getElementById('aiAdvisorBtn').addEventListener('click', askAiAdvisor);
+document.getElementById('aiSetupToggle').addEventListener('click', () => {
+  const panel = document.getElementById('aiSetupPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+document.getElementById('aiEndpointSaveBtn').addEventListener('click', () => {
+  const value = document.getElementById('aiEndpointInput').value.trim();
+  localSet(AI_ENDPOINT_KEY, value);
+  loadAiEndpoint();
+});
+loadAiEndpoint();
 document.getElementById('yearSelect').addEventListener('change', (e) => {
   selectedYear = e.target.value;
   renderYearOverview();
