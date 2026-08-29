@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — The Ledger Review</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@700;900&family=Inter:wght@400;500;600&display=swap');
+  :root{
+    --ink:#171a22; --ink-2:#1f2330; --line:#3a3f52; --text:#ece8dd; --text-mute:#9a9fad; --mustard:#d9a441;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--ink); color:var(--text); font-family:'Inter',system-ui,sans-serif;
+    padding:48px 20px 80px; line-height:1.65; font-size:15px;
+  }
+  .wrap{ max-width:680px; margin:0 auto; }
+  h1{ font-family:'Roboto Slab',serif; font-weight:900; font-size:32px; margin:0 0 6px; }
+  .updated{ font-family:monospace; font-size:12px; color:var(--text-mute); margin-bottom:36px; }
+  h2{ font-family:'Roboto Slab',serif; font-weight:700; font-size:19px; margin:34px 0 10px; color:var(--mustard); }
+  p, li{ color:var(--text); }
+  ul{ padding-left:20px; }
+  a{ color:var(--mustard); }
+  .box{ background:var(--ink-2); border:1px solid var(--line); border-radius:4px; padding:16px 18px; margin:20px 0; font-size:13.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Privacy Policy</h1>
+  <div class="updated">The Ledger Review — last updated August 2026</div>
+
+  <p>The Ledger Review is a personal budgeting tool built and operated by a single individual for personal, non-commercial use. It is not a company, and it does not sell, share, or monetize any data in any way.</p>
+
+  <h2>What data this app handles</h2>
+  <ul>
+    <li><strong>Account sign-in:</strong> when you sign in with Google, Firebase Authentication receives your name, email address, and profile picture from Google to identify your account. No password is ever seen or stored by this app.</li>
+    <li><strong>Budget data:</strong> the income, category, and savings figures you enter are stored in a database (Google Firestore), scoped so that only your signed-in account can read or write your own data.</li>
+    <li><strong>Bank data (only if you connect a bank account):</strong> if you choose to link a bank account, this app uses Enable Banking, a licensed account information service provider, to retrieve read-only balance and transaction data on your behalf, with your explicit consent given directly to your bank. This app never sees or stores your online banking login credentials — authentication happens directly with your bank.</li>
+    <li><strong>AI advisor (only if you use it):</strong> if you use the AI advisor feature, a summary of your budget figures is sent to Anthropic's Claude API to generate a response. Bank transaction data is not included in this. No data sent to the AI advisor is stored by Anthropic beyond what is needed to generate that one response.</li>
+  </ul>
+
+  <h2>How your data is used</h2>
+  <p>Solely to display and calculate your own budget, savings, and (if connected) transaction information back to you. Nothing is used for advertising, profiling, or resold or shared with any third party beyond the service providers named above, each of which processes data only to perform the specific function described.</p>
+
+  <h2>Who can see your data</h2>
+  <p>Only you, via your own signed-in account. Data storage rules are configured so that each user's data is isolated and inaccessible to any other account, including other users of this same tool.</p>
+
+  <h2>Data retention and deletion</h2>
+  <p>Your data is kept for as long as your account exists. You may disconnect a linked bank account at any time, which stops further access; you may also request full deletion of your account data by contacting the email below.</p>
+
+  <h2>Service providers involved</h2>
+  <ul>
+    <li>Google Firebase / Google Cloud — authentication and data storage</li>
+    <li>Enable Banking — regulated bank account data access (only if a bank account is connected)</li>
+    <li>Anthropic — AI-generated budget advice (only if the AI advisor feature is used)</li>
+  </ul>
+
+  <div class="box">
+    <strong>Contact for data protection matters:</strong><br>
+    Alexd-trash@outlook.com
+  </div>
+</div>
+</body>
+</html>
