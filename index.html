@@ -1310,6 +1310,7 @@ function buildCatRows(){
         <button type="button" class="add-line-btn" id="addline-${cat.key}">+ add ${cat.key === 'subs' ? 'subscription' : cat.key === 'donations' ? 'cause' : cat.key === 'housing' ? 'housing cost' : 'savings goal'}</button>
         <div class="cat-total-line"><span>Category total</span><b id="total-${cat.key}"></b></div>
         <div id="flag-${cat.key}"></div>
+        <div id="spent-${cat.key}" style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-mute); margin-top:4px;"></div>
       `;
       list.appendChild(row);
       renderSubItemRows(cat.key);
@@ -1327,6 +1328,7 @@ function buildCatRows(){
         </div>
         <input type="range" id="range-${cat.key}" min="0" step="10">
         <div id="flag-${cat.key}"></div>
+        <div id="spent-${cat.key}" style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-mute); margin-top:4px;"></div>
       `;
       list.appendChild(row);
 
@@ -2133,4 +2135,649 @@ function buildNarrativeAdvice(){
   }
 
   // 3. Debt
-  if
+  if((live.debt||0) > 0){
+    paras.push(`<p>You're putting ${fmt(live.debt)}/month toward debt. If that's spread across more than one balance: paying the highest-interest one first (the "avalanche" method) is mathematically the cheapest route, even though paying off the smallest balance first ("snowball") often feels more motivating. Pick whichever you'll actually stick with — the math only helps if the plan survives contact with real life.</p>`);
+  }
+
+  // 4. Retirement
+  const retirementItem = findByNameContains(subItems.savings, ['pension', 'retirement']);
+  if(retirementItem){
+    const retPct = income > 0 ? retirementItem.amt/income*100 : 0;
+    let retLabel, retColor;
+    if(retPct>=15){ retLabel='On track.'; retColor='var(--teal)'; }
+    else if(retPct>=8){ retLabel='Behind, not badly.'; retColor='var(--mustard)'; }
+    else { retLabel='Well behind.'; retColor='var(--rust)'; }
+    let retP = `<p><b style="color:${retColor}">${retLabel}</b> "${retirementItem.name}" is ${retPct.toFixed(1)}% of income. The ~15% target (employer match included) comes from research on what it actually takes to hold your standard of living once income stops.`;
+    if(investTotal>0) retP += ` Separately, your ${fmt(investTotal)} in tracked Investments would sustain roughly ${fmt(investTotal*0.04/12)}/month under the 4% withdrawal rule if drawn on today — illustrative only, not a real retirement plan.`;
+    paras.push(retP + '</p>');
+  }
+
+  // 5. Everyday spending — transportation
+  if(transportPct > 10){
+    paras.push(`<p>Transportation is ${transportPct.toFixed(0)}% of income, above the roughly 10% ceiling most car-buying guidance uses (alongside a ≥20% down payment and a loan no longer than 4 years, if financing). Worth asking whether the car is quietly costing you the retirement contribution above.</p>`);
+  }
+
+  // 6. Age-based context — only if an age was entered
+  const age = Number(document.getElementById('checkupAge').value) || 0;
+  if(age > 0){
+    const stockPct = Math.max(0, Math.min(100, 100 - age));
+    const annualIncome = income * 12;
+    const milestone = age<=30 ? {age:30, mult:1} : age<=40 ? {age:40, mult:3} : age<=50 ? {age:50, mult:6} : age<=60 ? {age:60, mult:8} : {age:67, mult:10};
+    const targetAmt = annualIncome * milestone.mult;
+    const mileLabel = investTotal>=targetAmt ? 'Ahead of the typical pace.' : 'Behind the typical pace.';
+    const mileColor = investTotal>=targetAmt ? 'var(--teal)' : 'var(--mustard)';
+    paras.push(`<p><b style="color:${mileColor}">${mileLabel}</b> At ${age}, a common guideline is roughly ${milestone.mult}× annual income saved for retirement by ${milestone.age} — about ${fmt(targetAmt)} at your current income. Your tracked Investments total ${fmt(investTotal)}. As a rough asset-allocation reference at this age, ${stockPct}% stocks / ${100-stockPct}% bonds is the traditional split (some use 110-minus-age or 120-minus-age instead, for a more aggressive tilt).</p>`);
+  }
+
+  // 7. Stated goal — this is where "how do I actually do this?" gets a
+  // real, numbers-backed plan rather than just a feasibility verdict.
+  const goalAmount = Number(document.getElementById('goalAmount').value) || 0;
+  const goalMonths = Number(document.getElementById('goalMonths').value) || 0;
+  if(goalAmount > 0 && goalMonths > 0){
+    const required = goalAmount / goalMonths;
+    const current = t.effectiveSavings;
+    const gap = required - current;
+    if(gap <= 0.5){
+      paras.push(`<p><b style="color:var(--teal)">On pace.</b> ${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} needs ${fmt(required)}/month, and you're already saving ${fmt(current)}/month — ${fmt(Math.abs(gap))} to spare. No changes needed to hit this.</p>`);
+    } else {
+      const plan = suggestTrimPlan(gap);
+      let planSentence;
+      if(plan.suggestions.length > 0){
+        planSentence = ' The way to close it: ' + plan.suggestions.map(s => `trim ${s.name} by ${fmt(s.trim)}/month`).join(', then ') + '.';
+        if(plan.remaining > 0.5) planSentence += ` Even after that, you're ${fmt(plan.remaining)}/month short — either stretch the timeline, bring in more income, or look at Needs categories too.`;
+      } else {
+        planSentence = " There's not much room left in Dining, Subscriptions, or Donations to trim — extending the timeline is probably the realistic move.";
+      }
+      paras.push(`<p><b style="color:var(--mustard)">Needs a plan.</b> ${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} needs ${fmt(required)}/month. You're at ${fmt(current)}/month, a gap of ${fmt(gap)}/month.${planSentence}</p>`);
+    }
+  }
+
+  paras.push(`<p style="color:var(--text-mute); font-size:12px;">One habit worth keeping regardless of any of the above: when income rises, move at least the same proportion into Savings before spending more elsewhere. That's the single biggest thing that quietly protects a raise from disappearing into lifestyle creep.</p>`);
+
+  return paras.join('');
+}
+
+function runCheckup(){
+  const output = document.getElementById('advisorOutput');
+  output.className = 'advisor-output';
+  output.innerHTML = buildNarrativeAdvice();
+}
+
+const AI_ENDPOINT_KEY = 'ledger-review-ai-endpoint';
+
+function loadAiEndpoint(){
+  const saved = localGet(AI_ENDPOINT_KEY);
+  const endpoint = typeof saved === 'string' ? saved : '';
+  document.getElementById('aiEndpointInput').value = endpoint;
+  document.getElementById('aiEndpointStatus').textContent = endpoint
+    ? `Configured: ${endpoint}`
+    : 'Not configured — "Ask AI advisor" will explain what\'s needed.';
+  return endpoint;
+}
+
+function buildAdvisorPrompt(){
+  const t = computeTotals();
+  const v = verdict(t.savingsRate, t.leftover);
+  const lines = DEFAULT_CATS.map(c => {
+    const pct = income > 0 ? (live[c.key]/income*100).toFixed(0) : '0';
+    let line = `- ${c.name}: ${fmt(live[c.key])} (${pct}% of income)`;
+    if(BREAKDOWN_KEYS.includes(c.key)){
+      const items = subItems[c.key].map(i => `${i.name} ${fmt(i.amt)}`).join(', ');
+      if(items) line += ` — made up of: ${items}`;
+    }
+    return line;
+  }).join('\n');
+
+  const goalAmount = Number(document.getElementById('goalAmount').value) || 0;
+  const goalMonths = Number(document.getElementById('goalMonths').value) || 0;
+  let goalBlock = '';
+  if(goalAmount > 0 && goalMonths > 0){
+    const required = goalAmount / goalMonths;
+    goalBlock = `\nStated goal: ${fmt(goalAmount)} in ${goalMonths} month${goalMonths===1?'':'s'} (needs ${fmt(required)}/month).`;
+  }
+
+  return `You are a direct, practical personal finance coach reviewing someone's real monthly budget. Be specific to the numbers given, not generic advice. Keep the reply under 200 words, plain prose, no markdown headers.
+
+Monthly income: ${fmt(income)}
+${lines}
+Effective savings rate: ${t.savingsRate.toFixed(1)}%
+Current status: ${v.label}${goalBlock}
+
+Give a short, honest assessment and 3-5 concrete, prioritized actions using their actual categories and amounts above.`;
+}
+
+async function askAiAdvisor(){
+  const output = document.getElementById('advisorOutput');
+  const btn = document.getElementById('aiAdvisorBtn');
+  const endpoint = loadAiEndpoint();
+
+  if(!endpoint){
+    output.className = 'advisor-output muted';
+    output.textContent = 'No AI advisor endpoint configured yet — click "AI advisor setup" above to add your deployed Cloud Function URL.';
+    return;
+  }
+  if(!auth || !currentUser){
+    output.className = 'advisor-output muted';
+    output.textContent = 'Sign in with Google first — the AI advisor requires a signed-in account so it can\'t be called by anyone who isn\'t you.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Thinking…';
+  output.className = 'advisor-output muted';
+  output.textContent = 'Reviewing your categories…';
+
+  try{
+    const idToken = await currentUser.getIdToken();
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      body: JSON.stringify({ prompt: buildAdvisorPrompt() })
+    });
+    let data;
+    try{ data = await response.json(); }catch(e){ data = null; }
+
+    if(!response.ok){
+      const msg = data && data.error ? data.error : `Request failed (${response.status})`;
+      output.className = 'advisor-output muted';
+      output.textContent = `The AI advisor couldn't respond: ${msg}`;
+      return;
+    }
+
+    output.className = 'advisor-output';
+    output.textContent = (data && data.text) ? data.text : 'The advisor responded with nothing usable — try again.';
+  }catch(e){
+    output.className = 'advisor-output muted';
+    output.textContent = 'Could not reach the AI advisor endpoint. Check the URL is correct and the function is deployed.';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Ask AI advisor';
+  }
+}
+
+document.getElementById('income').addEventListener('input', () => {
+  const newIncome = Number(document.getElementById('income').value) || 0;
+  if(autoScaleMode && newIncome !== lastIncomeForScale){
+    applyIncomeScale(newIncome);
+  }
+  lastIncomeForScale = newIncome;
+  render();
+});
+document.getElementById('saveBtn').addEventListener('click', saveState);
+document.getElementById('revertBtn').addEventListener('click', revert);
+document.getElementById('exportBtn').addEventListener('click', exportCSV);
+document.getElementById('csvCopyBtn').addEventListener('click', async () => {
+  const ta = document.getElementById('csvTextarea');
+  const btn = document.getElementById('csvCopyBtn');
+  ta.focus();
+  ta.select();
+  let copied = false;
+  try{
+    await navigator.clipboard.writeText(ta.value);
+    copied = true;
+  }catch(e){
+    try{ copied = document.execCommand('copy'); }catch(e2){ copied = false; }
+  }
+  btn.textContent = copied ? 'Copied!' : 'Select all & Ctrl+C';
+  setTimeout(() => { btn.textContent = 'Copy to clipboard'; }, 2200);
+});
+document.getElementById('csvCloseBtn').addEventListener('click', () => {
+  document.getElementById('csvModal').classList.remove('open');
+});
+document.getElementById('csvModal').addEventListener('click', (e) => {
+  if(e.target.id === 'csvModal') document.getElementById('csvModal').classList.remove('open');
+});
+document.getElementById('lockToggle').addEventListener('click', () => {
+  locked = !locked;
+  document.getElementById('lockToggle').textContent = locked ? 'Unlock budget' : 'Lock budget';
+  applyLockState();
+});
+// Browsers change a focused number input's value on mouse-wheel scroll —
+// this is almost certainly why numbers were shifting while scrolling.
+// Blur the field the instant a wheel event reaches it so scrolling just scrolls.
+document.addEventListener('wheel', (e) => {
+  if(e.target && e.target.tagName === 'INPUT' && e.target.type === 'number'){
+    e.target.blur();
+  }
+}, { passive: true });
+document.getElementById('balancedToggle').addEventListener('change', (e) => {
+  balancedMode = e.target.checked;
+  document.getElementById('balancedNote').style.display = balancedMode ? 'block' : 'none';
+});
+document.getElementById('compareBasisSelect').addEventListener('change', (e) => {
+  compareBasis = e.target.value;
+  render();
+});
+document.getElementById('autoScaleToggle').addEventListener('change', (e) => {
+  autoScaleMode = e.target.checked;
+  document.getElementById('scaleBasisSelect').style.display = autoScaleMode ? 'inline-block' : 'none';
+  document.getElementById('autoScaleNote').style.display = autoScaleMode ? 'block' : 'none';
+  lastIncomeForScale = income;
+});
+document.getElementById('scaleBasisSelect').addEventListener('change', (e) => {
+  scaleBasis = e.target.value;
+});
+document.getElementById('currencySelect').addEventListener('change', (e) => {
+  currency = e.target.value;
+  document.getElementById('currencySymbol').textContent = CURRENCIES[currency].symbol;
+  document.getElementById('goalAmountSymbol').textContent = CURRENCIES[currency].symbol;
+  render();
+  renderSavingsAccounts();
+});
+document.getElementById('addSavingsAccountBtn').addEventListener('click', () => addAccount('savings'));
+document.getElementById('addInvestmentAccountBtn').addEventListener('click', () => addAccount('investments'));
+document.getElementById('advisorBtn').addEventListener('click', runCheckup);
+document.getElementById('aiAdvisorBtn').addEventListener('click', askAiAdvisor);
+document.getElementById('aiSetupToggle').addEventListener('click', () => {
+  const panel = document.getElementById('aiSetupPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+document.getElementById('aiEndpointSaveBtn').addEventListener('click', () => {
+  const value = document.getElementById('aiEndpointInput').value.trim();
+  localSet(AI_ENDPOINT_KEY, value);
+  loadAiEndpoint();
+});
+loadAiEndpoint();
+document.getElementById('yearSelect').addEventListener('change', (e) => {
+  selectedYear = e.target.value;
+  renderYearOverview();
+});
+
+document.getElementById('signInBtn').addEventListener('click', () => {
+  if(!auth){
+    document.getElementById('authStatus').textContent = 'Cloud sign-in isn\'t available in this preview — open the hosted site to sign in.';
+    return;
+  }
+  document.getElementById('authStatus').textContent = 'Opening Google sign-in…';
+  // Popup first: a redirect trip depends on the browser preserving login
+  // state across a full navigation to Google and back, which is exactly
+  // what tracking-prevention features (Brave Shields, Edge Tracking
+  // Prevention, Safari ITP) are designed to interfere with — that's what
+  // was silently breaking sign-in. A popup never leaves the page at all,
+  // so there's no state to lose. Redirect only kicks in as a fallback,
+  // for the genuine popup-blocked case some mobile browsers still hit.
+  auth.signInWithPopup(googleProvider).catch(err => {
+    if(err && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment')){
+      document.getElementById('authStatus').textContent = 'Popup blocked — falling back to redirect sign-in…';
+      auth.signInWithRedirect(googleProvider).catch(err2 => {
+        document.getElementById('authStatus').textContent = describeAuthError(err2);
+      });
+      return;
+    }
+    if(err && err.code === 'auth/cancelled-popup-request'){
+      return; // user opened a second attempt before the first closed — not a real error
+    }
+    if(err && err.code === 'auth/popup-closed-by-user'){
+      document.getElementById('authStatus').textContent = 'Sign-in window closed before finishing — try again.';
+      return;
+    }
+    document.getElementById('authStatus').textContent = describeAuthError(err);
+  });
+});
+document.getElementById('signOutBtn').addEventListener('click', () => {
+  if(auth) auth.signOut();
+});
+
+function describeAuthError(err){
+  if(err && err.code === 'auth/unauthorized-domain'){
+    return "This page's domain isn't authorized for sign-in yet — add it under Firebase Console → Authentication → Settings → Authorized domains.";
+  }
+  if(err && err.code === 'auth/operation-not-supported-in-this-environment'){
+    return 'Google blocks sign-in inside embedded app browsers — open this page in your normal browser (Safari/Chrome), not from inside another app.';
+  }
+  return 'Sign-in failed: ' + (err && err.message ? err.message : 'unknown error');
+}
+
+// Everything below is optional cloud sync — none of it should ever be able
+// to block the budget itself from loading and rendering, so it's all
+// guarded on auth existing, and loadState() (which builds the categories)
+// runs unconditionally, first, regardless of whether Firebase loaded.
+if(auth){
+  // Only relevant if signInWithRedirect ended up being used as the fallback
+  // above — picks up the result after it sends the browser back here.
+  auth.getRedirectResult().catch(err => {
+    document.getElementById('authStatus').textContent = describeAuthError(err);
+  });
+
+  // Fires once immediately with whatever Firebase already knows (e.g. a
+  // remembered session), then again on every future sign-in/sign-out.
+// Each Cloud Function deployed with Firebase Functions v2 gets its own
+// unique Cloud Run URL rather than a shared base path.
+const BANK_FUNCTIONS = {
+  startBankAuth: 'https://startbankauth-hqxswmprga-uc.a.run.app',
+  completeBankAuth: 'https://completebankauth-hqxswmprga-uc.a.run.app',
+  syncBankTransactions: 'https://syncbanktransactions-hqxswmprga-uc.a.run.app'
+};
+
+async function connectBank(){
+  const statusEl = document.getElementById('bankStatus');
+  if(!auth || !currentUser){
+    statusEl.textContent = 'Sign in with Google first, then connect your bank.';
+    return;
+  }
+  statusEl.textContent = 'Opening ABN AMRO login…';
+  try{
+    const idToken = await currentUser.getIdToken();
+    const redirectUrl = window.location.origin + window.location.pathname;
+    const res = await fetch(BANK_FUNCTIONS.startBankAuth, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      body: JSON.stringify({ aspspName: 'ABN AMRO', aspspCountry: 'NL', redirectUrl })
+    });
+    const data = await res.json();
+    if(data.url){
+      window.location.href = data.url;
+    } else {
+      statusEl.textContent = 'Could not start bank login: ' + (data.error || 'unknown error');
+    }
+  }catch(e){
+    statusEl.textContent = 'Could not reach the bank connection service.';
+  }
+}
+
+// Runs on every page load, checking whether the browser just came back
+// from the ABN AMRO login redirect (a ?code=... in the URL). Only actually
+// does anything if that's present — harmless no-op otherwise.
+async function handleBankAuthCallback(){
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if(!code) return;
+
+  // Clean the URL immediately so refreshing the page doesn't re-trigger this.
+  window.history.replaceState({}, '', window.location.origin + window.location.pathname);
+
+  const statusEl = document.getElementById('bankStatus');
+  if(!auth || !currentUser){
+    statusEl.textContent = 'Bank login completed, but you need to be signed in to finish — sign in, then click Connect ABN AMRO again.';
+    return;
+  }
+  statusEl.textContent = 'Finishing bank connection…';
+  try{
+    const idToken = await currentUser.getIdToken();
+    const res = await fetch(BANK_FUNCTIONS.completeBankAuth, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    if(data.accounts){
+      statusEl.textContent = `Connected — ${data.accounts.length} account(s) linked. Click "Sync transactions" to pull your data.`;
+    } else {
+      statusEl.textContent = 'Could not finish connecting: ' + (data.error || 'unknown error');
+    }
+  }catch(e){
+    statusEl.textContent = 'Could not reach the bank connection service to finish connecting.';
+  }
+}
+
+async function syncBank(){
+  const statusEl = document.getElementById('bankStatus');
+  if(!auth || !currentUser){
+    statusEl.textContent = 'Sign in with Google first.';
+    return;
+  }
+  statusEl.textContent = 'Syncing transactions…';
+  try{
+    const idToken = await currentUser.getIdToken();
+    const res = await fetch(BANK_FUNCTIONS.syncBankTransactions, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${idToken}` }
+    });
+    const data = await res.json();
+    if(typeof data.count === 'number'){
+      statusEl.textContent = `Synced ${data.count} transaction${data.count===1?'':'s'}.` + (data.errors && data.errors.length ? ` (${data.errors.length} issue${data.errors.length===1?'':'s'} — check the browser console.)` : '');
+      if(data.errors && data.errors.length) console.warn('Bank sync issues:', data.errors);
+      loadTransactionsList();
+    } else {
+      statusEl.textContent = 'Sync failed: ' + (data.error || 'unknown error');
+    }
+  }catch(e){
+    statusEl.textContent = 'Could not reach the sync service.';
+  }
+}
+
+// Field names here are a best-effort guess at Enable Banking's standard
+// (PSD2/Berlin Group style) transaction format — not yet confirmed against
+// a real sample, so this may need adjusting once real data is visible.
+// Field names here are a best-effort guess at Enable Banking's standard
+// (PSD2/Berlin Group style) transaction format — not yet confirmed against
+// a real sample, so this may need adjusting once real data is visible.
+function extractTransactionDesc(t){
+  return t.remittance_information_unstructured
+    || (Array.isArray(t.remittance_information_unstructured_array) ? t.remittance_information_unstructured_array.join(' ') : null)
+    || (t.creditor && t.creditor.name)
+    || (t.debtor && t.debtor.name)
+    || 'Transaction';
+}
+
+// Turns a raw description into a stable key for matching the same merchant
+// across transactions — uppercased, trimmed, trailing reference numbers
+// (like a receipt/terminal ID tacked onto the end) stripped off.
+function normalizeMerchant(desc){
+  return String(desc || '')
+    .toUpperCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\s+\d{3,}$/, '');
+}
+
+let merchantRules = {}; // normalized merchant -> category key
+
+async function loadMerchantRules(){
+  if(!db || !currentUser) { merchantRules = {}; return; }
+  try{
+    const doc = await db.doc(`users/${currentUser.uid}/bank/merchantRules`).get();
+    merchantRules = (doc.exists && doc.data().rules) ? doc.data().rules : {};
+  }catch(e){
+    merchantRules = {};
+  }
+}
+
+async function saveMerchantRules(){
+  if(!db || !currentUser) return;
+  try{
+    await db.doc(`users/${currentUser.uid}/bank/merchantRules`).set({ rules: merchantRules });
+  }catch(e){ /* best-effort */ }
+}
+
+function categorySelectOptionsHtml(selected){
+  const opts = ['<option value="">— uncategorized —</option>'];
+  DEFAULT_CATS.forEach(c => {
+    opts.push(`<option value="${c.key}" ${c.key===selected?'selected':''}>${c.name}</option>`);
+  });
+  return opts.join('');
+}
+
+function renderTransactionRow(docId, t){
+  const cur = CURRENCIES[currency] || CURRENCIES.EUR;
+  const date = t.booking_date || t.value_date || '';
+  const amountObj = t.transaction_amount || {};
+  const amount = amountObj.amount !== undefined ? Number(amountObj.amount) : null;
+  const desc = extractTransactionDesc(t);
+  const amountText = amount === null ? '—' : `${amount < 0 ? '−' : '+'}${cur.symbol} ${Math.abs(amount).toLocaleString(cur.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const amountColor = amount === null ? 'var(--text-mute)' : amount < 0 ? 'var(--rust)' : 'var(--teal)';
+  // Falls back to a merchant rule suggestion if this transaction has never
+  // been explicitly categorized itself.
+  const effectiveCategory = t.category || merchantRules[normalizeMerchant(desc)] || '';
+  return `
+    <div class="account-history-row" style="flex-wrap:wrap; align-items:center;">
+      <span style="flex:1; min-width:160px;">${date} — ${desc}</span>
+      <span style="color:${amountColor}; margin-right:10px;">${amountText}</span>
+      <select class="link-account-select" data-txn-id="${docId}" data-txn-desc="${desc.replace(/"/g,'&quot;')}" aria-label="Category">${categorySelectOptionsHtml(effectiveCategory)}</select>
+    </div>
+  `;
+}
+
+// Saving a category on one transaction also remembers it for that merchant
+// going forward, and retroactively applies it to other uncategorized
+// transactions from the same merchant already sitting in the list — so
+// categorizing "ALBERT HEIJN" once cleans up every past grocery run at
+// once, not just that single row.
+async function assignTransactionCategory(docId, desc, categoryKey){
+  if(!db || !currentUser) return;
+  const merchantKey = normalizeMerchant(desc);
+  try{
+    await db.doc(`users/${currentUser.uid}/bank/transactions/items/${docId}`).update({ category: categoryKey || null });
+
+    if(categoryKey){
+      merchantRules[merchantKey] = categoryKey;
+    } else {
+      delete merchantRules[merchantKey];
+    }
+    await saveMerchantRules();
+
+    if(categoryKey){
+      const snap = await db.collection(`users/${currentUser.uid}/bank/transactions/items`)
+        .where('category', '==', null)
+        .limit(200)
+        .get();
+      const batch = db.batch();
+      let touched = 0;
+      snap.forEach(doc => {
+        if(doc.id === docId) return;
+        const t = doc.data();
+        if(normalizeMerchant(extractTransactionDesc(t)) === merchantKey){
+          batch.update(doc.ref, { category: categoryKey });
+          touched++;
+        }
+      });
+      if(touched > 0) await batch.commit();
+    }
+  }catch(e){ /* best-effort — row will just show its manual selection until next reload */ }
+
+  loadTransactionsList();
+  computeSpendByCategory();
+}
+
+async function loadTransactionsList(){
+  const container = document.getElementById('transactionsList');
+  if(!db || !currentUser){
+    container.innerHTML = '<div class="account-history-empty">Sign in and connect a bank account to see transactions here.</div>';
+    return;
+  }
+  container.innerHTML = '<div class="account-history-empty">Loading…</div>';
+  try{
+    await loadMerchantRules();
+    const snap = await db.collection(`users/${currentUser.uid}/bank/transactions/items`)
+      .orderBy('booking_date', 'desc')
+      .limit(100)
+      .get();
+    if(snap.empty){
+      container.innerHTML = '<div class="account-history-empty">No transactions synced yet — click "Sync transactions" above.</div>';
+      return;
+    }
+    const rows = [];
+    snap.forEach(doc => rows.push(renderTransactionRow(doc.id, doc.data())));
+    container.innerHTML = rows.join('');
+    container.querySelectorAll('[data-txn-id]').forEach(sel => {
+      sel.addEventListener('change', () => {
+        assignTransactionCategory(sel.dataset.txnId, sel.dataset.txnDesc, sel.value);
+      });
+    });
+  }catch(e){
+    container.innerHTML = `<div class="account-history-empty">Could not load transactions: ${e.message}</div>`;
+  }
+  computeSpendByCategory();
+}
+
+// Sums this calendar month's categorized spending per budget category and
+// shows it next to that category's budgeted amount on the Budget page —
+// actual vs. planned, without changing the budget number itself.
+async function computeSpendByCategory(){
+  DEFAULT_CATS.forEach(c => {
+    const el = document.getElementById(`spent-${c.key}`);
+    if(el) el.textContent = '';
+  });
+  if(!db || !currentUser) return;
+
+  try{
+    const monthPrefix = currentMonthKey();
+    const snap = await db.collection(`users/${currentUser.uid}/bank/transactions/items`)
+      .where('booking_date', '>=', `${monthPrefix}-01`)
+      .where('booking_date', '<=', `${monthPrefix}-31`)
+      .get();
+
+    const totals = {};
+    snap.forEach(doc => {
+      const t = doc.data();
+      const desc = extractTransactionDesc(t);
+      const cat = t.category || merchantRules[normalizeMerchant(desc)];
+      if(!cat) return;
+      const amt = t.transaction_amount && Number(t.transaction_amount.amount);
+      if(!amt || amt >= 0) return; // only count real spending, not income/transfers in
+      totals[cat] = (totals[cat] || 0) + Math.abs(amt);
+    });
+
+    const cur = CURRENCIES[currency] || CURRENCIES.EUR;
+    Object.keys(totals).forEach(key => {
+      const el = document.getElementById(`spent-${key}`);
+      if(el) el.textContent = `spent so far: ${cur.symbol} ${Math.round(totals[key]).toLocaleString(cur.locale)}`;
+    });
+  }catch(e){ /* best-effort — budget page still works fine without this */ }
+}
+
+auth.onAuthStateChanged(async (user) => {
+  currentUser = user;
+  const statusEl = document.getElementById('authStatus');
+  const signInBtn = document.getElementById('signInBtn');
+  const signOutBtn = document.getElementById('signOutBtn');
+  if(user){
+    statusEl.textContent = `Signed in as ${user.email} — synced to your account.`;
+    statusEl.classList.add('signed-in');
+    signInBtn.style.display = 'none';
+    signOutBtn.style.display = 'inline-block';
+    await loadFromCloud();
+    await handleBankAuthCallback();
+    loadTransactionsList();
+  } else {
+    statusEl.textContent = 'Not signed in — saving to this device only.';
+    statusEl.classList.remove('signed-in');
+    signInBtn.style.display = 'inline-block';
+    signOutBtn.style.display = 'none';
+  }
+});
+} else {
+  document.getElementById('authStatus').textContent = 'Cloud sync unavailable in this preview — saving to this device only.';
+  document.getElementById('signInBtn').style.display = 'none';
+  document.getElementById('signOutBtn').style.display = 'none';
+}
+
+const dismissBtn = document.getElementById('errorBannerClose');
+if(dismissBtn){
+  dismissBtn.addEventListener('click', () => {
+    document.getElementById('errorBanner').classList.remove('show');
+  });
+}
+
+function switchPage(page){
+  const isBudget = page === 'budget';
+  document.getElementById('pageBudget').style.display = isBudget ? '' : 'none';
+  document.getElementById('pageSavings').style.display = isBudget ? 'none' : '';
+  document.getElementById('navBudgetBtn').classList.toggle('active', isBudget);
+  document.getElementById('navSavingsBtn').classList.toggle('active', !isBudget);
+  if(!isBudget && typeof loadTransactionsList === 'function') loadTransactionsList();
+}
+document.getElementById('navBudgetBtn').addEventListener('click', () => switchPage('budget'));
+document.getElementById('navSavingsBtn').addEventListener('click', () => switchPage('savings'));
+document.getElementById('goToSavingsPageBtn').addEventListener('click', () => switchPage('savings'));
+document.getElementById('connectBankBtn').addEventListener('click', () => {
+  if(typeof connectBank === 'function') connectBank();
+  else document.getElementById('bankStatus').textContent = 'Bank connection is unavailable in this preview.';
+});
+document.getElementById('syncBankBtn').addEventListener('click', () => {
+  if(typeof syncBank === 'function') syncBank();
+  else document.getElementById('bankStatus').textContent = 'Bank connection is unavailable in this preview.';
+});
+document.getElementById('reminderGoBtn').addEventListener('click', () => {
+  switchPage('savings');
+  document.getElementById('reminderBanner').style.display = 'none';
+});
+document.getElementById('reminderDismissBtn').addEventListener('click', () => {
+  localSet('ledger-review-reminder-dismissed-' + currentMonthKey(), true);
+  document.getElementById('reminderBanner').style.display = 'none';
+});
+
+loadState();
+</script>
+</body>
+</html>
