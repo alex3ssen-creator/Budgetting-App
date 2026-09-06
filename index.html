@@ -767,6 +767,7 @@
       <p class="advisor-disclaimer" style="margin:0 0 14px;">
         A first look at your real transactions, pulled from your connected account. This is raw data for now — matching transactions to budget categories is the next piece to build.
       </p>
+      <div id="bankConsentWarning" style="display:none; background:rgba(217,164,65,0.1); border:1px solid var(--mustard-dim); border-radius:var(--radius); padding:10px 14px; margin-bottom:12px; font-family:var(--font-mono); font-size:11.5px; color:var(--mustard);"></div>
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
         <button type="button" class="primary" id="connectBankBtn">Connect ABN AMRO</button>
         <button type="button" id="syncBankBtn">Sync transactions</button>
@@ -2449,6 +2450,26 @@ const BANK_FUNCTIONS = {
   syncBankTransactions: 'https://syncbanktransactions-hqxswmprga-uc.a.run.app'
 };
 
+// Purely client-side estimate — warns before the 90-day bank access window
+// lapses, rather than letting syncs silently start failing with no
+// explanation once it does.
+function checkBankConsentExpiry(){
+  const el = document.getElementById('bankConsentWarning');
+  if(!el) return;
+  const untilStr = localGet('ledger-review-bank-consent-until');
+  if(!untilStr){ el.style.display = 'none'; return; }
+  const until = new Date(untilStr);
+  const daysLeft = Math.ceil((until - new Date()) / (1000*60*60*24));
+  if(daysLeft <= 14){
+    el.style.display = 'block';
+    el.textContent = daysLeft <= 0
+      ? 'Your bank connection has likely expired — click "Connect ABN AMRO" to reconnect.'
+      : `Your bank connection expires in about ${daysLeft} day${daysLeft===1?'':'s'} — reconnect soon to keep syncing.`;
+  } else {
+    el.style.display = 'none';
+  }
+}
+
 async function connectBank(){
   const statusEl = document.getElementById('bankStatus');
   if(!auth || !currentUser){
@@ -2466,6 +2487,12 @@ async function connectBank(){
     });
     const data = await res.json();
     if(data.url){
+      // The Cloud Function requests 90 days of access from Enable Banking —
+      // stored here as a client-side estimate so we can warn before it
+      // lapses, without needing to touch the working backend flow to get
+      // the real value back.
+      const validUntil = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      localSet('ledger-review-bank-consent-until', validUntil);
       window.location.href = data.url;
     } else {
       statusEl.textContent = 'Could not start bank login: ' + (data.error || 'unknown error');
@@ -2729,6 +2756,7 @@ auth.onAuthStateChanged(async (user) => {
     await loadFromCloud();
     await handleBankAuthCallback();
     loadTransactionsList();
+    checkBankConsentExpiry();
   } else {
     statusEl.textContent = 'Not signed in — saving to this device only.';
     statusEl.classList.remove('signed-in');
@@ -2756,6 +2784,7 @@ function switchPage(page){
   document.getElementById('navBudgetBtn').classList.toggle('active', isBudget);
   document.getElementById('navSavingsBtn').classList.toggle('active', !isBudget);
   if(!isBudget && typeof loadTransactionsList === 'function') loadTransactionsList();
+  if(!isBudget && typeof checkBankConsentExpiry === 'function') checkBankConsentExpiry();
 }
 document.getElementById('navBudgetBtn').addEventListener('click', () => switchPage('budget'));
 document.getElementById('navSavingsBtn').addEventListener('click', () => switchPage('savings'));
