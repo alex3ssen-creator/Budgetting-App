@@ -759,6 +759,19 @@
     </div>
   </div>
 
+  <div class="panel" id="mfaPanel" style="margin-top:24px;">
+    <div class="panel-head">
+      <h2>Two-factor authentication</h2>
+    </div>
+    <div style="padding:16px 18px;">
+      <p class="advisor-disclaimer" style="margin:0 0 14px;">
+        An extra code, from an authenticator app, required before connecting or syncing your bank data — enforced by the server itself, not just hidden behind a screen.
+      </p>
+      <div id="mfaStatus" style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-mute); margin-bottom:12px;">Checking…</div>
+      <div id="mfaSetupArea"></div>
+    </div>
+  </div>
+
   <div class="panel" id="bankPanel" style="margin-top:24px;">
     <div class="panel-head">
       <h2>Bank connection — ABN AMRO</h2>
@@ -773,7 +786,23 @@
         <button type="button" id="syncBankBtn">Sync transactions</button>
       </div>
       <div id="bankStatus" style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-mute); margin-bottom:14px;"></div>
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <button type="button" class="page-nav-btn active" id="txnFilterAllBtn" style="font-size:12px; padding:6px 12px; border:1px solid var(--line); border-radius:var(--radius);">All</button>
+        <button type="button" class="page-nav-btn" id="txnFilterUncatBtn" style="font-size:12px; padding:6px 12px; border:1px solid var(--line); border-radius:var(--radius);">Uncategorized</button>
+      </div>
       <div id="transactionsList"></div>
+
+      <div class="account-group" style="margin-top:22px;">
+        <div class="account-group-head">
+          <h3>Category rules</h3>
+        </div>
+        <div id="merchantRulesList"></div>
+        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+          <input type="text" id="newRuleMerchant" placeholder="Merchant name (e.g. ALBERT HEIJN)" style="flex:1; min-width:160px; background:var(--ink-2); border:1px solid var(--line); border-radius:var(--radius); color:var(--text); font-family:var(--font-mono); font-size:12px; padding:8px 10px;">
+          <select id="newRuleCategory" class="currency-select" style="font-size:12px;"></select>
+          <button type="button" id="addRuleBtn">Add rule</button>
+        </div>
+      </div>
     </div>
   </div>
   </div>
@@ -796,6 +825,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <script>
 // Same Firebase project as the to-do app — budget data lives under its own
 // path (users/{uid}/budget/...) so the two apps never touch each other's data.
@@ -2444,6 +2474,184 @@ if(auth){
   // remembered session), then again on every future sign-in/sign-out.
 // Each Cloud Function deployed with Firebase Functions v2 gets its own
 // unique Cloud Run URL rather than a shared base path.
+// Predicted Cloud Run URLs — Firebase Functions v2 shares one
+// project-specific hash across every function in the project (visible in
+// the bank function URLs below); these follow that same pattern. If any
+// of these are wrong after deploying, the real deploy output has the
+// actual URL to swap in.
+const MFA_FUNCTIONS = {
+  enrollMfaStart: 'https://enrollmfastart-hqxswmprga-uc.a.run.app',
+  enrollMfaConfirm: 'https://enrollmfaconfirm-hqxswmprga-uc.a.run.app',
+  verifyMfaCode: 'https://verifymfacode-hqxswmprga-uc.a.run.app',
+  disableMfa: 'https://disablemfa-hqxswmprga-uc.a.run.app'
+};
+
+const MFA_SESSION_KEY = 'ledger-review-mfa-session';
+let mfaEnabled = false;
+let pendingMfaSecret = null; // holds the secret+QR data during enrollment, before confirmed
+
+// Stored in localStorage rather than a plain variable — connecting a bank
+// account means leaving the page entirely (redirecting to the bank and
+// back), which would wipe an in-memory value. This survives that trip
+// while still expiring in under 15 minutes either way.
+function getStoredMfaSession(){
+  const stored = localGet(MFA_SESSION_KEY);
+  if(!stored || !stored.token || !stored.expiresAt) return null;
+  if(Date.now() >= stored.expiresAt) return null;
+  return stored.token;
+}
+function storeMfaSession(token){
+  localSet(MFA_SESSION_KEY, { token, expiresAt: Date.now() + 14*60*1000 });
+}
+function clearMfaSession(){
+  localSet(MFA_SESSION_KEY, null);
+}
+
+async function checkMfaStatus(){
+  const statusEl = document.getElementById('mfaStatus');
+  if(!db || !currentUser){ statusEl.textContent = 'Sign in to set up 2FA.'; return; }
+  try{
+    const doc = await db.doc(`users/${currentUser.uid}/security/mfa`).get();
+    mfaEnabled = doc.exists && doc.data().enabled === true;
+  }catch(e){
+    mfaEnabled = false;
+  }
+  renderMfaSetupArea();
+}
+
+function renderMfaSetupArea(){
+  const statusEl = document.getElementById('mfaStatus');
+  const area = document.getElementById('mfaSetupArea');
+  if(mfaEnabled){
+    statusEl.textContent = '2FA is enabled on this account.';
+    statusEl.style.color = 'var(--teal)';
+    area.innerHTML = `<button type="button" id="disableMfaBtn">Disable 2FA</button>`;
+    document.getElementById('disableMfaBtn').addEventListener('click', disableMfaFlow);
+  } else if(pendingMfaSecret){
+    statusEl.textContent = "Scan this with your authenticator app, then enter the code it shows.";
+    statusEl.style.color = 'var(--text-mute)';
+    area.innerHTML = `
+      <canvas id="mfaQrCanvas" style="background:#fff; padding:10px; border-radius:4px;"></canvas>
+      <div style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-mute); margin:10px 0; word-break:break-all;">Can't scan? Enter manually: ${pendingMfaSecret.secret}</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <input type="text" id="mfaConfirmCode" placeholder="6-digit code" maxlength="6" style="background:var(--ink-2); border:1px solid var(--line); border-radius:var(--radius); color:var(--text); font-family:var(--font-mono); font-size:14px; padding:8px 10px; width:120px;">
+        <button type="button" class="primary" id="mfaConfirmBtn">Confirm</button>
+        <button type="button" id="mfaCancelBtn">Cancel</button>
+      </div>
+    `;
+    if(window.QRCode){
+      QRCode.toCanvas(document.getElementById('mfaQrCanvas'), pendingMfaSecret.otpauthUrl, { width: 180 }, () => {});
+    }
+    document.getElementById('mfaConfirmBtn').addEventListener('click', confirmMfaEnrollment);
+    document.getElementById('mfaCancelBtn').addEventListener('click', () => { pendingMfaSecret = null; renderMfaSetupArea(); });
+  } else {
+    statusEl.textContent = 'Not enabled yet.';
+    statusEl.style.color = 'var(--text-mute)';
+    area.innerHTML = `<button type="button" class="primary" id="startMfaBtn">Set up 2FA</button>`;
+    document.getElementById('startMfaBtn').addEventListener('click', startMfaEnrollment);
+  }
+}
+
+async function startMfaEnrollment(){
+  const statusEl = document.getElementById('mfaStatus');
+  if(!currentUser){ statusEl.textContent = 'Sign in first.'; return; }
+  statusEl.textContent = 'Generating your 2FA setup…';
+  try{
+    const idToken = await currentUser.getIdToken();
+    const res = await fetch(MFA_FUNCTIONS.enrollMfaStart, { method: 'POST', headers: { 'Authorization': `Bearer ${idToken}` } });
+    const data = await res.json();
+    if(data.otpauthUrl){
+      pendingMfaSecret = data;
+      renderMfaSetupArea();
+    } else {
+      statusEl.textContent = 'Could not start 2FA setup: ' + (data.error || 'unknown error');
+    }
+  }catch(e){
+    statusEl.textContent = 'Could not reach the 2FA service.';
+  }
+}
+
+async function confirmMfaEnrollment(){
+  const statusEl = document.getElementById('mfaStatus');
+  const codeInput = document.getElementById('mfaConfirmCode');
+  const code = codeInput.value.trim();
+  if(!code) return;
+  statusEl.textContent = 'Confirming…';
+  try{
+    const idToken = await currentUser.getIdToken();
+    const res = await fetch(MFA_FUNCTIONS.enrollMfaConfirm, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    if(data.enabled){
+      mfaEnabled = true;
+      pendingMfaSecret = null;
+      if(data.sessionToken) storeMfaSession(data.sessionToken);
+      renderMfaSetupArea();
+    } else {
+      statusEl.textContent = data.error || 'Incorrect code — try again.';
+    }
+  }catch(e){
+    statusEl.textContent = 'Could not reach the 2FA service.';
+  }
+}
+
+async function disableMfaFlow(){
+  const code = window.prompt('Enter your current 2FA code to disable it:');
+  if(!code) return;
+  const statusEl = document.getElementById('mfaStatus');
+  try{
+    const idToken = await currentUser.getIdToken();
+    const res = await fetch(MFA_FUNCTIONS.disableMfa, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    if(data.disabled){
+      mfaEnabled = false;
+      clearMfaSession();
+      renderMfaSetupArea();
+    } else {
+      statusEl.textContent = data.error || 'Could not disable 2FA.';
+    }
+  }catch(e){
+    statusEl.textContent = 'Could not reach the 2FA service.';
+  }
+}
+
+// Returns a valid, unexpired session token — prompting for a fresh code
+// if none is stored or it's aged out. Returns null if the user cancels
+// or the code is wrong, so callers can cleanly stop rather than proceed.
+async function ensureMfaSession(){
+  if(!mfaEnabled) return null; // not enrolled — nothing to attach
+  const existing = getStoredMfaSession();
+  if(existing) return existing;
+
+  const code = window.prompt('Enter your 2FA code to continue:');
+  if(!code) return null;
+  try{
+    const idToken = await currentUser.getIdToken();
+    const res = await fetch(MFA_FUNCTIONS.verifyMfaCode, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    if(data.sessionToken){
+      storeMfaSession(data.sessionToken);
+      return data.sessionToken;
+    }
+    document.getElementById('bankStatus').textContent = data.error || 'Incorrect 2FA code.';
+    return null;
+  }catch(e){
+    document.getElementById('bankStatus').textContent = 'Could not reach the 2FA service.';
+    return null;
+  }
+}
+
 const BANK_FUNCTIONS = {
   startBankAuth: 'https://startbankauth-hqxswmprga-uc.a.run.app',
   completeBankAuth: 'https://completebankauth-hqxswmprga-uc.a.run.app',
@@ -2476,13 +2684,22 @@ async function connectBank(){
     statusEl.textContent = 'Sign in with Google first, then connect your bank.';
     return;
   }
+
+  const mfaToken = await ensureMfaSession();
+  if(mfaEnabled && !mfaToken){
+    statusEl.textContent = '2FA verification is required to connect a bank account.';
+    return;
+  }
+
   statusEl.textContent = 'Opening ABN AMRO login…';
   try{
     const idToken = await currentUser.getIdToken();
     const redirectUrl = window.location.origin + window.location.pathname;
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` };
+    if(mfaToken) headers['X-MFA-Token'] = mfaToken;
     const res = await fetch(BANK_FUNCTIONS.startBankAuth, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      headers,
       body: JSON.stringify({ aspspName: 'ABN AMRO', aspspCountry: 'NL', redirectUrl })
     });
     const data = await res.json();
@@ -2521,9 +2738,12 @@ async function handleBankAuthCallback(){
   statusEl.textContent = 'Finishing bank connection…';
   try{
     const idToken = await currentUser.getIdToken();
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` };
+    const mfaToken = getStoredMfaSession();
+    if(mfaToken) headers['X-MFA-Token'] = mfaToken;
     const res = await fetch(BANK_FUNCTIONS.completeBankAuth, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      headers,
       body: JSON.stringify({ code })
     });
     const data = await res.json();
@@ -2543,12 +2763,21 @@ async function syncBank(){
     statusEl.textContent = 'Sign in with Google first.';
     return;
   }
+
+  const mfaToken = await ensureMfaSession();
+  if(mfaEnabled && !mfaToken){
+    statusEl.textContent = '2FA verification is required to sync transactions.';
+    return;
+  }
+
   statusEl.textContent = 'Syncing transactions…';
   try{
     const idToken = await currentUser.getIdToken();
+    const headers = { 'Authorization': `Bearer ${idToken}` };
+    if(mfaToken) headers['X-MFA-Token'] = mfaToken;
     const res = await fetch(BANK_FUNCTIONS.syncBankTransactions, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${idToken}` }
+      headers
     });
     const data = await res.json();
     if(typeof data.count === 'number'){
@@ -2635,9 +2864,38 @@ function renderTransactionRow(docId, t){
   `;
 }
 
+let allTransactionsCache = []; // [{ id, data }] — fetched once, filtered client-side from here
+let txnFilter = 'all'; // 'all' | 'uncategorized'
+
+// Applies a category to every cached transaction from the same merchant
+// that doesn't already have one — matched in JS, not via a Firestore query.
+// A Firestore equality query for category == null only matches documents
+// where that field was explicitly set to null; it does NOT match documents
+// where the field was never added at all, which is exactly the case for
+// every transaction synced before it was ever categorized. Matching in JS
+// against the already-fetched cache sidesteps that gap entirely.
+async function applyRuleRetroactively(merchantKey, categoryKey, skipId){
+  if(!db || !currentUser) return 0;
+  const batch = db.batch();
+  let touched = 0;
+  allTransactionsCache.forEach(item => {
+    if(item.id === skipId) return;
+    if(item.data.category) return; // don't override an explicit existing choice
+    if(normalizeMerchant(extractTransactionDesc(item.data)) === merchantKey){
+      batch.update(db.doc(`users/${currentUser.uid}/bank/transactions/items/${item.id}`), { category: categoryKey });
+      item.data.category = categoryKey;
+      touched++;
+    }
+  });
+  if(touched > 0){
+    try{ await batch.commit(); }catch(e){ /* best-effort */ }
+  }
+  return touched;
+}
+
 // Saving a category on one transaction also remembers it for that merchant
 // going forward, and retroactively applies it to other uncategorized
-// transactions from the same merchant already sitting in the list — so
+// transactions from the same merchant already sitting in the cache — so
 // categorizing "ALBERT HEIJN" once cleans up every past grocery run at
 // once, not just that single row.
 async function assignTransactionCategory(docId, desc, categoryKey){
@@ -2645,6 +2903,8 @@ async function assignTransactionCategory(docId, desc, categoryKey){
   const merchantKey = normalizeMerchant(desc);
   try{
     await db.doc(`users/${currentUser.uid}/bank/transactions/items/${docId}`).update({ category: categoryKey || null });
+    const cachedItem = allTransactionsCache.find(i => i.id === docId);
+    if(cachedItem) cachedItem.data.category = categoryKey || null;
 
     if(categoryKey){
       merchantRules[merchantKey] = categoryKey;
@@ -2652,28 +2912,42 @@ async function assignTransactionCategory(docId, desc, categoryKey){
       delete merchantRules[merchantKey];
     }
     await saveMerchantRules();
+    renderMerchantRulesList();
 
-    if(categoryKey){
-      const snap = await db.collection(`users/${currentUser.uid}/bank/transactions/items`)
-        .where('category', '==', null)
-        .limit(200)
-        .get();
-      const batch = db.batch();
-      let touched = 0;
-      snap.forEach(doc => {
-        if(doc.id === docId) return;
-        const t = doc.data();
-        if(normalizeMerchant(extractTransactionDesc(t)) === merchantKey){
-          batch.update(doc.ref, { category: categoryKey });
-          touched++;
-        }
-      });
-      if(touched > 0) await batch.commit();
-    }
+    if(categoryKey) await applyRuleRetroactively(merchantKey, categoryKey, docId);
   }catch(e){ /* best-effort — row will just show its manual selection until next reload */ }
 
-  loadTransactionsList();
+  renderTransactionsListFromCache();
   computeSpendByCategory();
+}
+
+function renderTransactionsListFromCache(){
+  const container = document.getElementById('transactionsList');
+  const filtered = txnFilter === 'uncategorized'
+    ? allTransactionsCache.filter(item => !item.data.category)
+    : allTransactionsCache;
+
+  if(filtered.length === 0){
+    container.innerHTML = `<div class="account-history-empty">${
+      txnFilter === 'uncategorized'
+        ? (allTransactionsCache.length === 0 ? 'No transactions synced yet — click "Sync transactions" above.' : 'Nothing left to categorize — nice.')
+        : 'No transactions synced yet — click "Sync transactions" above.'
+    }</div>`;
+    return;
+  }
+  container.innerHTML = filtered.map(item => renderTransactionRow(item.id, item.data)).join('');
+  container.querySelectorAll('[data-txn-id]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      assignTransactionCategory(sel.dataset.txnId, sel.dataset.txnDesc, sel.value);
+    });
+  });
+}
+
+function setTxnFilter(filter){
+  txnFilter = filter;
+  document.getElementById('txnFilterAllBtn').classList.toggle('active', filter === 'all');
+  document.getElementById('txnFilterUncatBtn').classList.toggle('active', filter === 'uncategorized');
+  renderTransactionsListFromCache();
 }
 
 async function loadTransactionsList(){
@@ -2685,25 +2959,60 @@ async function loadTransactionsList(){
   container.innerHTML = '<div class="account-history-empty">Loading…</div>';
   try{
     await loadMerchantRules();
+    renderMerchantRulesList();
     const snap = await db.collection(`users/${currentUser.uid}/bank/transactions/items`)
       .orderBy('booking_date', 'desc')
-      .limit(100)
+      .limit(500)
       .get();
-    if(snap.empty){
-      container.innerHTML = '<div class="account-history-empty">No transactions synced yet — click "Sync transactions" above.</div>';
-      return;
-    }
-    const rows = [];
-    snap.forEach(doc => rows.push(renderTransactionRow(doc.id, doc.data())));
-    container.innerHTML = rows.join('');
-    container.querySelectorAll('[data-txn-id]').forEach(sel => {
-      sel.addEventListener('change', () => {
-        assignTransactionCategory(sel.dataset.txnId, sel.dataset.txnDesc, sel.value);
-      });
-    });
+    allTransactionsCache = [];
+    snap.forEach(doc => allTransactionsCache.push({ id: doc.id, data: doc.data() }));
+    renderTransactionsListFromCache();
   }catch(e){
     container.innerHTML = `<div class="account-history-empty">Could not load transactions: ${e.message}</div>`;
   }
+  computeSpendByCategory();
+}
+
+// --- Manual category rules — set a merchant's category ahead of time,
+// rather than only learning it reactively from categorizing one transaction. ---
+function renderMerchantRulesList(){
+  const container = document.getElementById('merchantRulesList');
+  if(!container) return;
+  const keys = Object.keys(merchantRules).sort();
+  if(keys.length === 0){
+    container.innerHTML = '<div class="account-history-empty">No rules yet — categorize a transaction above, or add one directly below.</div>';
+    return;
+  }
+  container.innerHTML = keys.map(merchant => {
+    const cat = DEFAULT_CATS.find(c => c.key === merchantRules[merchant]);
+    const catName = cat ? cat.name : merchantRules[merchant];
+    return `<div class="account-history-row"><span>${merchant}</span><span>${catName} <button type="button" class="subitem-remove" data-remove-rule="${merchant.replace(/"/g,'&quot;')}" style="margin-left:8px;">×</button></span></div>`;
+  }).join('');
+  container.querySelectorAll('[data-remove-rule]').forEach(btn => {
+    btn.addEventListener('click', () => removeMerchantRule(btn.dataset.removeRule));
+  });
+}
+
+async function removeMerchantRule(merchant){
+  delete merchantRules[merchant];
+  await saveMerchantRules();
+  renderMerchantRulesList();
+}
+
+async function addMerchantRuleManually(){
+  const input = document.getElementById('newRuleMerchant');
+  const select = document.getElementById('newRuleCategory');
+  const merchantKey = normalizeMerchant(input.value);
+  const categoryKey = select.value;
+  if(!merchantKey || !categoryKey) return;
+
+  merchantRules[merchantKey] = categoryKey;
+  await saveMerchantRules();
+  input.value = '';
+  renderMerchantRulesList();
+
+  await applyRuleRetroactively(merchantKey, categoryKey, null);
+  renderTransactionsListFromCache();
   computeSpendByCategory();
 }
 
@@ -2754,6 +3063,7 @@ auth.onAuthStateChanged(async (user) => {
     signInBtn.style.display = 'none';
     signOutBtn.style.display = 'inline-block';
     await loadFromCloud();
+    checkMfaStatus();
     await handleBankAuthCallback();
     loadTransactionsList();
     checkBankConsentExpiry();
@@ -2797,6 +3107,19 @@ document.getElementById('syncBankBtn').addEventListener('click', () => {
   if(typeof syncBank === 'function') syncBank();
   else document.getElementById('bankStatus').textContent = 'Bank connection is unavailable in this preview.';
 });
+document.getElementById('txnFilterAllBtn').addEventListener('click', () => {
+  if(typeof setTxnFilter === 'function') setTxnFilter('all');
+});
+document.getElementById('txnFilterUncatBtn').addEventListener('click', () => {
+  if(typeof setTxnFilter === 'function') setTxnFilter('uncategorized');
+});
+document.getElementById('addRuleBtn').addEventListener('click', () => {
+  if(typeof addMerchantRuleManually === 'function') addMerchantRuleManually();
+});
+// Category dropdown for manually adding a rule — populated once at load,
+// doesn't need the "uncategorized" placeholder option that per-transaction
+// selects use, since a new rule always needs a real category chosen.
+document.getElementById('newRuleCategory').innerHTML = DEFAULT_CATS.map(c => `<option value="${c.key}">${c.name}</option>`).join('');
 document.getElementById('reminderGoBtn').addEventListener('click', () => {
   switchPage('savings');
   document.getElementById('reminderBanner').style.display = 'none';
