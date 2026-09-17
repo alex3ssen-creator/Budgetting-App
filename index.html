@@ -786,10 +786,15 @@
         <button type="button" id="syncBankBtn">Sync transactions</button>
       </div>
       <div id="bankStatus" style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-mute); margin-bottom:14px;"></div>
-      <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center;">
         <button type="button" class="page-nav-btn active" id="txnFilterAllBtn" style="font-size:12px; padding:6px 12px; border:1px solid var(--line); border-radius:var(--radius);">All</button>
         <button type="button" class="page-nav-btn" id="txnFilterUncatBtn" style="font-size:12px; padding:6px 12px; border:1px solid var(--line); border-radius:var(--radius);">Uncategorized</button>
+        <label style="display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-left:auto;">
+          Month
+          <select id="txnMonthSelect" class="currency-select" style="font-size:11px; padding:6px 8px;"></select>
+        </label>
       </div>
+      <div id="txnMonthSummary" style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-bottom:10px;"></div>
       <div id="transactionsList"></div>
 
       <div class="account-group" style="margin-top:22px;">
@@ -2866,6 +2871,7 @@ function renderTransactionRow(docId, t){
 
 let allTransactionsCache = []; // [{ id, data }] — fetched once, filtered client-side from here
 let txnFilter = 'all'; // 'all' | 'uncategorized'
+let txnMonth = 'all';  // 'all' | 'YYYY-MM'
 
 // Applies a category to every cached transaction from the same merchant
 // that doesn't already have one — matched in JS, not via a Firestore query.
@@ -2921,17 +2927,46 @@ async function assignTransactionCategory(docId, desc, categoryKey){
   computeSpendByCategory();
 }
 
+function transactionMonth(t){
+  const date = t.booking_date || t.value_date || '';
+  return date.slice(0, 7); // "YYYY-MM"
+}
+
+// Rebuilt from whatever months actually appear in the synced data, so it
+// never offers a month with nothing in it.
+function populateMonthPicker(){
+  const select = document.getElementById('txnMonthSelect');
+  if(!select) return;
+  const months = Array.from(new Set(
+    allTransactionsCache.map(item => transactionMonth(item.data)).filter(Boolean)
+  )).sort().reverse();
+
+  const opts = ['<option value="all">All months</option>'];
+  months.forEach(m => {
+    opts.push(`<option value="${m}" ${m===txnMonth?'selected':''}>${monthLabel(m)}</option>`);
+  });
+  select.innerHTML = opts.join('');
+  if(txnMonth !== 'all' && !months.includes(txnMonth)) txnMonth = 'all';
+  select.value = txnMonth;
+}
+
 function renderTransactionsListFromCache(){
   const container = document.getElementById('transactionsList');
-  const filtered = txnFilter === 'uncategorized'
-    ? allTransactionsCache.filter(item => !item.data.category)
-    : allTransactionsCache;
+  let filtered = allTransactionsCache;
+  if(txnMonth !== 'all'){
+    filtered = filtered.filter(item => transactionMonth(item.data) === txnMonth);
+  }
+  if(txnFilter === 'uncategorized'){
+    filtered = filtered.filter(item => !item.data.category);
+  }
+
+  renderMonthSummary(filtered);
 
   if(filtered.length === 0){
     container.innerHTML = `<div class="account-history-empty">${
-      txnFilter === 'uncategorized'
-        ? (allTransactionsCache.length === 0 ? 'No transactions synced yet — click "Sync transactions" above.' : 'Nothing left to categorize — nice.')
-        : 'No transactions synced yet — click "Sync transactions" above.'
+      allTransactionsCache.length === 0
+        ? 'No transactions synced yet — click "Sync transactions" above.'
+        : (txnFilter === 'uncategorized' ? 'Nothing left to categorize here — nice.' : 'No transactions in this month.')
     }</div>`;
     return;
   }
@@ -2943,11 +2978,31 @@ function renderTransactionsListFromCache(){
   });
 }
 
+function renderMonthSummary(filtered){
+  const el = document.getElementById('txnMonthSummary');
+  if(!el) return;
+  const cur = CURRENCIES[currency] || CURRENCIES.EUR;
+  let spent = 0, received = 0, uncategorized = 0;
+  filtered.forEach(item => {
+    const amt = item.data.transaction_amount && Number(item.data.transaction_amount.amount);
+    if(amt < 0) spent += Math.abs(amt); else if(amt > 0) received += amt;
+    if(!item.data.category) uncategorized++;
+  });
+  const fmtAmt = (n) => `${cur.symbol} ${Math.round(n).toLocaleString(cur.locale)}`;
+  el.textContent = `${filtered.length} transaction${filtered.length===1?'':'s'} · out ${fmtAmt(spent)} · in ${fmtAmt(received)}${uncategorized ? ` · ${uncategorized} uncategorized` : ''}`;
+}
+
 function setTxnFilter(filter){
   txnFilter = filter;
   document.getElementById('txnFilterAllBtn').classList.toggle('active', filter === 'all');
   document.getElementById('txnFilterUncatBtn').classList.toggle('active', filter === 'uncategorized');
   renderTransactionsListFromCache();
+}
+
+function setTxnMonth(month){
+  txnMonth = month;
+  renderTransactionsListFromCache();
+  computeSpendByCategory();
 }
 
 async function loadTransactionsList(){
@@ -2966,6 +3021,7 @@ async function loadTransactionsList(){
       .get();
     allTransactionsCache = [];
     snap.forEach(doc => allTransactionsCache.push({ id: doc.id, data: doc.data() }));
+    populateMonthPicker();
     renderTransactionsListFromCache();
   }catch(e){
     container.innerHTML = `<div class="account-history-empty">Could not load transactions: ${e.message}</div>`;
@@ -3027,15 +3083,15 @@ async function computeSpendByCategory(){
   if(!db || !currentUser) return;
 
   try{
-    const monthPrefix = currentMonthKey();
-    const snap = await db.collection(`users/${currentUser.uid}/bank/transactions/items`)
-      .where('booking_date', '>=', `${monthPrefix}-01`)
-      .where('booking_date', '<=', `${monthPrefix}-31`)
-      .get();
+    // Uses the already-loaded cache rather than a second query — keeps this
+    // in sync with whichever month is selected in the transaction list,
+    // instead of always being hardcoded to the current calendar month.
+    const targetMonth = (txnMonth && txnMonth !== 'all') ? txnMonth : currentMonthKey();
+    const relevant = allTransactionsCache.filter(item => transactionMonth(item.data) === targetMonth);
 
     const totals = {};
-    snap.forEach(doc => {
-      const t = doc.data();
+    relevant.forEach(item => {
+      const t = item.data;
       const desc = extractTransactionDesc(t);
       const cat = t.category || merchantRules[normalizeMerchant(desc)];
       if(!cat) return;
@@ -3045,9 +3101,10 @@ async function computeSpendByCategory(){
     });
 
     const cur = CURRENCIES[currency] || CURRENCIES.EUR;
+    const label = targetMonth === currentMonthKey() ? 'spent so far' : `spent in ${monthLabel(targetMonth)}`;
     Object.keys(totals).forEach(key => {
       const el = document.getElementById(`spent-${key}`);
-      if(el) el.textContent = `spent so far: ${cur.symbol} ${Math.round(totals[key]).toLocaleString(cur.locale)}`;
+      if(el) el.textContent = `${label}: ${cur.symbol} ${Math.round(totals[key]).toLocaleString(cur.locale)}`;
     });
   }catch(e){ /* best-effort — budget page still works fine without this */ }
 }
@@ -3112,6 +3169,9 @@ document.getElementById('txnFilterAllBtn').addEventListener('click', () => {
 });
 document.getElementById('txnFilterUncatBtn').addEventListener('click', () => {
   if(typeof setTxnFilter === 'function') setTxnFilter('uncategorized');
+});
+document.getElementById('txnMonthSelect').addEventListener('change', (e) => {
+  if(typeof setTxnMonth === 'function') setTxnMonth(e.target.value);
 });
 document.getElementById('addRuleBtn').addEventListener('click', () => {
   if(typeof addMerchantRuleManually === 'function') addMerchantRuleManually();
