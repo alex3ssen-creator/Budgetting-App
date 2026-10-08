@@ -2939,7 +2939,10 @@ function populateMonthPicker(){
   if(!select) return;
   const months = Array.from(new Set(
     allTransactionsCache.map(item => transactionMonth(item.data)).filter(Boolean)
-  )).sort().reverse();
+  ));
+  const nowMonth = currentMonthKey();
+  if(!months.includes(nowMonth)) months.push(nowMonth);
+  months.sort().reverse();
 
   const opts = ['<option value="all">All months</option>'];
   months.forEach(m => {
@@ -3119,8 +3122,15 @@ auth.onAuthStateChanged(async (user) => {
     statusEl.classList.add('signed-in');
     signInBtn.style.display = 'none';
     signOutBtn.style.display = 'inline-block';
+    await checkMfaStatus();
+    if(mfaEnabled){
+      const token = await ensureMfaSession();
+      if(!token){
+        statusEl.textContent = '2FA verification required to continue.';
+        return;
+      }
+    }
     await loadFromCloud();
-    checkMfaStatus();
     await handleBankAuthCallback();
     loadTransactionsList();
     checkBankConsentExpiry();
