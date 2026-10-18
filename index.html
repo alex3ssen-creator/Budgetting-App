@@ -63,7 +63,12 @@
 
   /* ---------- Page navigation ---------- */
   .page-nav{
-    display:flex; gap:6px; margin-bottom: 24px; border-bottom: 2px solid var(--line);
+    display:flex; flex-wrap:wrap; column-gap:18px; margin-bottom: 24px; border-bottom: 2px solid var(--line);
+  }
+  .nav-badge{
+    display:none; margin-left:6px; background: var(--mustard); color: var(--ink);
+    font-family: var(--font-mono); font-size:10.5px; font-weight:700;
+    padding:1px 7px; border-radius:10px; vertical-align:middle;
   }
   .page-nav-btn{
     background:none; border:none; color: var(--text-mute); cursor:pointer;
@@ -506,6 +511,7 @@
   <div class="page-nav">
     <button type="button" class="page-nav-btn active" id="navBudgetBtn">Budget</button>
     <button type="button" class="page-nav-btn" id="navSavingsBtn">Savings &amp; Overview</button>
+    <button type="button" class="page-nav-btn" id="navCategorizeBtn">To categorize<span class="nav-badge" id="txnUncatBadge"></span></button>
   </div>
 
   <div class="reminder-banner" id="reminderBanner" style="display:none;">
@@ -813,6 +819,28 @@
   </div>
   </div>
 
+  <div id="pageCategorize" style="display:none;">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Payments to categorize</h2>
+        <span id="categorizeSummary" style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute);"></span>
+      </div>
+      <div style="padding:16px 18px;">
+        <p class="advisor-disclaimer" style="margin:0 0 12px;">
+          Choose a category per payment. The app remembers the merchant, so the same shop is categorized automatically next time — and past payments from it are filled in right away.
+        </p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
+          <label style="display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--text-mute);">
+            Month
+            <select id="catMonthSelect" class="currency-select" style="font-size:11px; padding:6px 8px;"></select>
+          </label>
+          <button type="button" id="applySuggestedBtn" style="display:none;"></button>
+        </div>
+        <div id="categorizeList"></div>
+      </div>
+    </div>
+  </div>
+
   <footer>Figures are illustrative, not financial advice. You already know what you spend — this just won't let you look away from it.</footer>
 </div>
 
@@ -885,13 +913,18 @@ const DEFAULT_CATS = [
 ];
 
 // Categories that are broken down into named line items instead of a single slider.
-const BREAKDOWN_KEYS = ['housing', 'subs', 'donations', 'savings'];
+const BREAKDOWN_KEYS = ['housing', 'insurance', 'subs', 'donations', 'savings'];
 
 function defaultSubItems(){
   return {
     housing: [
       { id: 'h1', name: 'Rent / mortgage',                    amt: 1200 },
       { id: 'h2', name: 'Utilities (electricity, water, gas, internet)', amt: 200 },
+    ],
+    insurance: [
+      { id: 'i1', name: 'Health insurance',                       amt: 130 },
+      { id: 'i2', name: 'Other insurance (liability, contents…)', amt: 60  },
+      { id: 'i3', name: 'Health costs (own risk, pharmacy)',      amt: 60  },
     ],
     subs: [
       { id: 's1', name: 'Streaming (Netflix, Spotify, etc.)', amt: 25 },
@@ -1073,7 +1106,7 @@ function normalizeSubItemsShape(){
     if(!Array.isArray(subItems[key])){
       const existingTotal = (live && typeof live[key] === 'number') ? live[key] : 0;
       subItemIdCounter++;
-      subItems[key] = [{ id: 'mig' + subItemIdCounter, name: key === 'housing' ? 'Rent / mortgage' : 'General', amt: existingTotal }];
+      subItems[key] = [{ id: 'mig' + subItemIdCounter, name: key === 'housing' ? 'Rent / mortgage' : key === 'insurance' ? 'Insurance & health' : 'General', amt: existingTotal }];
     }
   });
 }
@@ -1354,7 +1387,7 @@ function buildCatRows(){
           </div>
         </div>
         <div class="subitem-list" id="subitems-${cat.key}"></div>
-        <button type="button" class="add-line-btn" id="addline-${cat.key}">+ add ${cat.key === 'subs' ? 'subscription' : cat.key === 'donations' ? 'cause' : cat.key === 'housing' ? 'housing cost' : 'savings goal'}</button>
+        <button type="button" class="add-line-btn" id="addline-${cat.key}">+ add ${cat.key === 'subs' ? 'subscription' : cat.key === 'donations' ? 'cause' : cat.key === 'housing' ? 'housing cost' : cat.key === 'insurance' ? 'insurance / health cost' : 'savings goal'}</button>
         <div class="cat-total-line"><span>Category total</span><b id="total-${cat.key}"></b></div>
         <div id="flag-${cat.key}"></div>
         <div id="spent-${cat.key}" style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-mute); margin-top:4px;"></div>
@@ -3027,7 +3060,96 @@ function populateMonthPicker(){
   select.value = txnMonth;
 }
 
+
+// ---- Tab "To categorize": alleen betalingen zonder categorie én zonder bekende winkelregel ----
+let catMonth = 'all';
+
+function merchantRuleFor(item){
+  return merchantRules[normalizeMerchant(extractTransactionDesc(item.data))];
+}
+function needsNaming(item){ return !item.data.category && !merchantRuleFor(item); }
+function suggestedOnly(item){ return !item.data.category && !!merchantRuleFor(item); }
+
+function updateCategorizeBadge(){
+  const badge = document.getElementById('txnUncatBadge');
+  if(!badge) return;
+  const n = allTransactionsCache.filter(needsNaming).length;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.style.display = n > 0 ? 'inline-block' : 'none';
+}
+
+function populateCatMonthPicker(){
+  const select = document.getElementById('catMonthSelect');
+  if(!select) return;
+  const months = Array.from(new Set(allTransactionsCache.filter(needsNaming).map(i => transactionMonth(i.data)).filter(Boolean))).sort().reverse();
+  if(catMonth !== 'all' && !months.includes(catMonth)) catMonth = 'all';
+  select.innerHTML = '<option value="all">All months</option>' + months.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
+  select.value = catMonth;
+}
+
+function renderCategorizePage(){
+  const list = document.getElementById('categorizeList');
+  if(!list) return;
+  const summary = document.getElementById('categorizeSummary');
+  const applyBtn = document.getElementById('applySuggestedBtn');
+  if(!db || !currentUser){
+    list.innerHTML = '<div class="account-history-empty">Sign in to see payments that still need a category.</div>';
+    summary.textContent = ''; applyBtn.style.display = 'none';
+    return;
+  }
+  populateCatMonthPicker();
+  let items = allTransactionsCache.filter(needsNaming);
+  if(catMonth !== 'all') items = items.filter(i => transactionMonth(i.data) === catMonth);
+  summary.textContent = `${items.length} to name`;
+
+  const suggested = allTransactionsCache.filter(suggestedOnly).length;
+  applyBtn.style.display = suggested > 0 ? 'inline-block' : 'none';
+  applyBtn.textContent = `Save ${suggested} suggested categor${suggested===1?'y':'ies'}`;
+
+  if(items.length === 0){
+    list.innerHTML = `<div class="account-history-empty">${allTransactionsCache.length === 0 ? 'No transactions yet — sync your bank on the Savings & Overview page.' : 'Everything here has a category — nice.'}</div>`;
+    return;
+  }
+  const MAX = 200;
+  list.innerHTML = items.slice(0, MAX).map(i => renderTransactionRow(i.id, i.data)).join('') +
+    (items.length > MAX ? `<div class="account-history-empty">Showing the first ${MAX} — more appear as you work through these.</div>` : '');
+  list.querySelectorAll('[data-txn-id]').forEach(sel => {
+    sel.addEventListener('change', () => assignTransactionCategory(sel.dataset.txnId, sel.dataset.txnDesc, sel.value));
+  });
+}
+
+// Bewaart de categorieën die al uit een winkelregel volgen maar nog niet echt opgeslagen zijn.
+async function applySuggestedCategories(){
+  if(!db || !currentUser) return;
+  const items = allTransactionsCache.filter(suggestedOnly);
+  for(let i = 0; i < items.length; i += 400){
+    const chunk = items.slice(i, i + 400);
+    const batch = db.batch();
+    chunk.forEach(item => batch.update(db.doc(`users/${currentUser.uid}/bank/transactions/items/${item.id}`), { category: merchantRuleFor(item) }));
+    try{
+      await batch.commit();
+      chunk.forEach(item => { item.data.category = merchantRuleFor(item); });
+    }catch(e){ break; }
+  }
+  renderTransactionsListFromCache();
+  computeSpendByCategory();
+}
+
+function setCatMonth(month){ catMonth = month; renderCategorizePage(); }
+
+function refreshCategorizeViews(){
+  updateCategorizeBadge();
+  const page = document.getElementById('pageCategorize');
+  if(page && page.style.display !== 'none') renderCategorizePage();
+}
+
+async function openCategorizePage(){
+  if(db && currentUser && allTransactionsCache.length === 0) await loadTransactionsList();
+  renderCategorizePage();
+}
+
 function renderTransactionsListFromCache(){
+  refreshCategorizeViews();
   const container = document.getElementById('transactionsList');
   let filtered = allTransactionsCache;
   if(txnMonth !== 'all'){
@@ -3186,6 +3308,11 @@ async function computeSpendByCategory(){
   }catch(e){ /* best-effort — budget page still works fine without this */ }
 }
 
+// Async-functies die in dit blok staan zijn van buiten het blok niet zichtbaar.
+// Zonder deze regel meldden de knoppen Connect / Sync / Add rule dat de bank
+// "niet beschikbaar" was, ook al werkte alles gewoon.
+Object.assign(window, { addMerchantRuleManually, applySuggestedCategories, checkBankConsentExpiry, connectBank, loadTransactionsList, openCategorizePage, setCatMonth, setTxnFilter, setTxnMonth, syncBank });
+
 auth.onAuthStateChanged(async (user) => {
   currentUser = user;
   const statusEl = document.getElementById('authStatus');
@@ -3231,16 +3358,26 @@ if(dismissBtn){
 }
 
 function switchPage(page){
-  const isBudget = page === 'budget';
-  document.getElementById('pageBudget').style.display = isBudget ? '' : 'none';
-  document.getElementById('pageSavings').style.display = isBudget ? 'none' : '';
-  document.getElementById('navBudgetBtn').classList.toggle('active', isBudget);
-  document.getElementById('navSavingsBtn').classList.toggle('active', !isBudget);
-  if(!isBudget && typeof loadTransactionsList === 'function') loadTransactionsList();
-  if(!isBudget && typeof checkBankConsentExpiry === 'function') checkBankConsentExpiry();
+  const map = {
+    budget: ['pageBudget', 'navBudgetBtn'],
+    savings: ['pageSavings', 'navSavingsBtn'],
+    categorize: ['pageCategorize', 'navCategorizeBtn']
+  };
+  Object.keys(map).forEach(k => {
+    document.getElementById(map[k][0]).style.display = k === page ? '' : 'none';
+    document.getElementById(map[k][1]).classList.toggle('active', k === page);
+  });
+  if(page === 'savings'){
+    if(typeof loadTransactionsList === 'function') loadTransactionsList();
+    if(typeof checkBankConsentExpiry === 'function') checkBankConsentExpiry();
+  }
+  if(page === 'categorize' && typeof openCategorizePage === 'function') openCategorizePage();
 }
 document.getElementById('navBudgetBtn').addEventListener('click', () => switchPage('budget'));
 document.getElementById('navSavingsBtn').addEventListener('click', () => switchPage('savings'));
+document.getElementById('navCategorizeBtn').addEventListener('click', () => switchPage('categorize'));
+document.getElementById('catMonthSelect').addEventListener('change', (e) => { if(typeof setCatMonth === 'function') setCatMonth(e.target.value); });
+document.getElementById('applySuggestedBtn').addEventListener('click', () => { if(typeof applySuggestedCategories === 'function') applySuggestedCategories(); });
 document.getElementById('goToSavingsPageBtn').addEventListener('click', () => switchPage('savings'));
 document.getElementById('connectBankBtn').addEventListener('click', () => {
   if(typeof connectBank === 'function') connectBank();
