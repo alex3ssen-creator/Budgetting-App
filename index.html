@@ -2532,11 +2532,13 @@ const MFA_FUNCTIONS = {
   enrollMfaStart: 'https://enrollmfastart-hqxswmprga-uc.a.run.app',
   enrollMfaConfirm: 'https://enrollmfaconfirm-hqxswmprga-uc.a.run.app',
   verifyMfaCode: 'https://verifymfacode-hqxswmprga-uc.a.run.app',
-  disableMfa: 'https://disablemfa-hqxswmprga-uc.a.run.app'
+  disableMfa: 'https://disablemfa-hqxswmprga-uc.a.run.app',
+  mfaStatus: 'https://mfastatus-hqxswmprga-uc.a.run.app'
 };
 
 const MFA_SESSION_KEY = 'ledger-review-mfa-session';
 let mfaEnabled = false;
+let mfaStatusKnown = false;
 let pendingMfaSecret = null; // holds the secret+QR data during enrollment, before confirmed
 
 // Stored in localStorage rather than a plain variable — connecting a bank
@@ -2559,11 +2561,23 @@ function clearMfaSession(){
 async function checkMfaStatus(){
   const statusEl = document.getElementById('mfaStatus');
   if(!db || !currentUser){ statusEl.textContent = 'Sign in to set up 2FA.'; return; }
+  mfaStatusKnown = false;
+  // 1) De server weet het zeker (en werkt ook zonder Firestore-regel).
   try{
-    const doc = await db.doc(`users/${currentUser.uid}/security/mfa`).get();
-    mfaEnabled = doc.exists && doc.data().enabled === true;
-  }catch(e){
-    mfaEnabled = false;
+    const idToken = await currentUser.getIdToken();
+    const res = await fetch(MFA_FUNCTIONS.mfaStatus, { method: 'POST', headers: { 'Authorization': `Bearer ${idToken}` } });
+    if(res.ok){
+      const d = await res.json();
+      if(typeof d.enabled === 'boolean'){ mfaEnabled = d.enabled; mfaStatusKnown = true; }
+    }
+  }catch(e){ /* terugval hieronder */ }
+  // 2) Terugval: rechtstreeks uit Firestore.
+  if(!mfaStatusKnown){
+    try{
+      const doc = await db.doc(`users/${currentUser.uid}/security/mfa`).get();
+      mfaEnabled = doc.exists && doc.data().enabled === true;
+      mfaStatusKnown = true;
+    }catch(e){ /* status blijft onbekend */ }
   }
   renderMfaSetupArea();
 }
@@ -2602,6 +2616,13 @@ function renderMfaSetupArea(){
     });
     document.getElementById('mfaConfirmBtn').addEventListener('click', confirmMfaEnrollment);
     document.getElementById('mfaCancelBtn').addEventListener('click', () => { pendingMfaSecret = null; renderMfaSetupArea(); });
+  } else if(!mfaStatusKnown){
+    // Als we de status niet kunnen lezen bieden we GEEN nieuwe setup aan: dat zou een
+    // bestaande 2FA vervangen en je telkens een nieuwe sleutel laten toevoegen.
+    statusEl.textContent = 'Kan de 2FA-status niet ophalen. Je 2FA staat waarschijnlijk al aan — stel het NIET opnieuw in. Controleer of de nieuwste functions zijn gedeployed en de Firestore-regel voor security is gepubliceerd.';
+    statusEl.style.color = 'var(--mustard)';
+    area.innerHTML = `<button type="button" id="retryMfaBtn">Opnieuw proberen</button>`;
+    document.getElementById('retryMfaBtn').addEventListener('click', checkMfaStatus);
   } else {
     statusEl.textContent = 'Not enabled yet.';
     statusEl.style.color = 'var(--text-mute)';
@@ -2620,6 +2641,9 @@ async function startMfaEnrollment(){
     const data = await res.json();
     if(data.otpauthUrl){
       pendingMfaSecret = data;
+      renderMfaSetupArea();
+    } else if(data.alreadyEnabled){
+      mfaEnabled = true; mfaStatusKnown = true; pendingMfaSecret = null;
       renderMfaSetupArea();
     } else {
       statusEl.textContent = 'Could not start 2FA setup: ' + (data.error || 'unknown error');
@@ -2736,7 +2760,7 @@ function checkBankConsentExpiry(){
   }
 }
 
-async function connectBank(){
+async function connectBank(retried){
   const statusEl = document.getElementById('bankStatus');
   if(!auth || !currentUser){
     statusEl.textContent = 'Sign in with Google first, then connect your bank.';
@@ -2761,6 +2785,10 @@ async function connectBank(){
       body: JSON.stringify({ aspspName: 'ABN AMRO', aspspCountry: 'NL', redirectUrl })
     });
     const data = await res.json();
+    if(!res.ok && /2FA|verification is required/i.test(data.error || '') && !retried){
+      mfaEnabled = true; clearMfaSession();
+      return connectBank(true);
+    }
     if(data.url){
       // The Cloud Function requests 90 days of access from Enable Banking —
       // stored here as a client-side estimate so we can warn before it
@@ -2845,6 +2873,10 @@ async function syncBank(opts){
     if(mfaToken) headers['X-MFA-Token'] = mfaToken;
     const res = await fetch(BANK_FUNCTIONS.syncBankTransactions, { method: 'POST', headers });
     const data = await res.json();
+    if(!res.ok && /2FA|verification is required/i.test(data.error || '') && !(opts && opts._retried)){
+      mfaEnabled = true; clearMfaSession();
+      return syncBank({ silent, _retried: true });
+    }
     if(typeof data.count === 'number'){
       const hadErrors = data.errors && data.errors.length;
       if(hadErrors){
@@ -2854,7 +2886,7 @@ async function syncBank(opts){
         statusEl.textContent = `Bijgewerkt: ${data.count} transactie${data.count===1?'':'s'}.`;
         localSet('ledger-review-last-sync', Date.now());
       }
-      await loadTransactionsList();
+      await loadTransactionsList(true);
       loadLastSyncInfo();
       return !hadErrors;
     }
@@ -2882,7 +2914,7 @@ async function loadLastSyncInfo(){
     } else {
       parts.push('Nog niet gesynchroniseerd');
     }
-    const newest = allTransactionsCache.map(i => i.data.booking_date || i.data.value_date || '').filter(Boolean).sort().pop();
+    const newest = allTransactionsCache.map(i => txnDate(i.data)).filter(Boolean).sort().pop();
     if(newest) parts.push(`nieuwste transactie: ${newest}`);
     if(!sess.exists) parts.push('geen bankkoppeling gevonden — klik Connect ABN AMRO');
     el.textContent = parts.join(' · ');
@@ -2910,11 +2942,28 @@ async function maybeAutoSync(){
 // Field names here are a best-effort guess at Enable Banking's standard
 // (PSD2/Berlin Group style) transaction format — not yet confirmed against
 // a real sample, so this may need adjusting once real data is visible.
+// Bij ABN AMRO (via Enable Banking) is het bedrag altijd positief; de richting
+// staat in credit_debit_indicator (DBIT = eraf, CRDT = erbij).
+function signedAmount(t){
+  const raw = t.transaction_amount && t.transaction_amount.amount;
+  if(raw === undefined || raw === null || raw === '') return null;
+  const n = Number(String(raw).replace(',', '.'));
+  if(isNaN(n)) return null;
+  const ind = String(t.credit_debit_indicator || '').toUpperCase();
+  if(ind === 'DBIT' || ind === 'DEBIT') return -Math.abs(n);
+  if(ind === 'CRDT' || ind === 'CREDIT') return Math.abs(n);
+  return n; // geen indicator: het teken van het bedrag zelf vertrouwen
+}
+function txnDate(t){ return t.booking_date || t.value_date || t.transaction_date || ''; }
+
 function extractTransactionDesc(t){
   return t.remittance_information_unstructured
     || (Array.isArray(t.remittance_information_unstructured_array) ? t.remittance_information_unstructured_array.join(' ') : null)
-    || (t.creditor && t.creditor.name)
-    || (t.debtor && t.debtor.name)
+    || (/^CR/i.test(String(t.credit_debit_indicator || ''))
+         ? ((t.debtor && t.debtor.name) || (t.creditor && t.creditor.name))
+         : ((t.creditor && t.creditor.name) || (t.debtor && t.debtor.name)))
+    || (Array.isArray(t.remittance_information) ? t.remittance_information.join(' ') : t.remittance_information)
+    || t.note
     || 'Transaction';
 }
 
@@ -2958,9 +3007,8 @@ function categorySelectOptionsHtml(selected){
 
 function renderTransactionRow(docId, t){
   const cur = CURRENCIES[currency] || CURRENCIES.EUR;
-  const date = t.booking_date || t.value_date || '';
-  const amountObj = t.transaction_amount || {};
-  const amount = amountObj.amount !== undefined ? Number(amountObj.amount) : null;
+  const date = txnDate(t);
+  const amount = signedAmount(t);
   const desc = extractTransactionDesc(t);
   const amountText = amount === null ? '—' : `${amount < 0 ? '−' : '+'}${cur.symbol} ${Math.abs(amount).toLocaleString(cur.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const amountColor = amount === null ? 'var(--text-mute)' : amount < 0 ? 'var(--rust)' : 'var(--teal)';
@@ -3035,8 +3083,7 @@ async function assignTransactionCategory(docId, desc, categoryKey){
 }
 
 function transactionMonth(t){
-  const date = t.booking_date || t.value_date || '';
-  return date.slice(0, 7); // "YYYY-MM"
+  return txnDate(t).slice(0, 7); // "YYYY-MM"
 }
 
 // Rebuilt from whatever months actually appear in the synced data, so it
@@ -3183,7 +3230,7 @@ function renderMonthSummary(filtered){
   const cur = CURRENCIES[currency] || CURRENCIES.EUR;
   let spent = 0, received = 0, uncategorized = 0;
   filtered.forEach(item => {
-    const amt = item.data.transaction_amount && Number(item.data.transaction_amount.amount);
+    const amt = signedAmount(item.data);
     if(amt < 0) spent += Math.abs(amt); else if(amt > 0) received += amt;
     if(!item.data.category) uncategorized++;
   });
@@ -3204,22 +3251,35 @@ function setTxnMonth(month){
   computeSpendByCategory();
 }
 
-async function loadTransactionsList(){
+async function loadTransactionsList(force){
   const container = document.getElementById('transactionsList');
   if(!db || !currentUser){
     container.innerHTML = '<div class="account-history-empty">Sign in and connect a bank account to see transactions here.</div>';
     return;
   }
+  // Niet bij elk bezoek alles opnieuw ophalen — dat kost onnodig veel Firestore-reads.
+  if(!force && allTransactionsCache.length > 0){ renderTransactionsListFromCache(); return; }
   container.innerHTML = '<div class="account-history-empty">Loading…</div>';
   try{
     await loadMerchantRules();
     renderMerchantRulesList();
-    const snap = await db.collection(`users/${currentUser.uid}/bank/transactions/items`)
-      .orderBy('booking_date', 'desc')
-      .limit(500)
-      .get();
-    allTransactionsCache = [];
-    snap.forEach(doc => allTransactionsCache.push({ id: doc.id, data: doc.data() }));
+    const path = `users/${currentUser.uid}/bank/transactions/items`;
+    const docs = [];
+    const ordered = await db.collection(path).orderBy('booking_date', 'desc').limit(3000).get();
+    ordered.forEach(doc => docs.push({ id: doc.id, data: doc.data() }));
+    // Een gesorteerde query slaat transacties zonder booking_date (bijv. nog niet
+    // geboekt) over. Staan er meer in de samenvatting dan we kregen, haal dan de rest apart op.
+    try{
+      const summary = await db.doc(`users/${currentUser.uid}/bank/transactions`).get();
+      const total = summary.exists ? Number(summary.data().count) || 0 : 0;
+      if(total > docs.length && total <= 3000){
+        const seen = new Set(docs.map(d => d.id));
+        const everything = await db.collection(path).limit(3000).get();
+        everything.forEach(doc => { if(!seen.has(doc.id)) docs.push({ id: doc.id, data: doc.data() }); });
+      }
+    }catch(e){ /* terugval is best-effort */ }
+    docs.sort((a, b) => txnDate(b.data).localeCompare(txnDate(a.data)));
+    allTransactionsCache = docs;
     populateMonthPicker();
     renderTransactionsListFromCache();
   }catch(e){
@@ -3294,7 +3354,7 @@ async function computeSpendByCategory(){
       const desc = extractTransactionDesc(t);
       const cat = t.category || merchantRules[normalizeMerchant(desc)];
       if(!cat) return;
-      const amt = t.transaction_amount && Number(t.transaction_amount.amount);
+      const amt = signedAmount(t);
       if(!amt || amt >= 0) return; // only count real spending, not income/transfers in
       totals[cat] = (totals[cat] || 0) + Math.abs(amt);
     });
@@ -3324,6 +3384,7 @@ auth.onAuthStateChanged(async (user) => {
     signInBtn.style.display = 'none';
     signOutBtn.style.display = 'inline-block';
     await checkMfaStatus();
+    if(!mfaStatusKnown) statusEl.textContent = 'Ingelogd — 2FA-status onbekend, zie het paneel "Two-factor authentication".';
     if(mfaEnabled){
       const token = await ensureMfaSession();
       if(!token){
