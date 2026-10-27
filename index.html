@@ -500,6 +500,31 @@
     }
   });
 </script>
+<div id="lockScreen" style="position:fixed; inset:0; z-index:1500; background:var(--ink); display:flex; justify-content:center; align-items:flex-start; overflow-y:auto; padding:48px 20px;">
+  <div style="width:100%; max-width:460px;">
+    <div class="eyebrow">The Ledger Review</div>
+    <h1 style="font-size:30px; margin-bottom:10px;">Vergrendeld</h1>
+    <p id="lockMessage" style="color:var(--text-mute); font-size:14px; line-height:1.55; margin:0 0 18px;">Laden…</p>
+
+    <div id="lockSignInArea" style="display:none;">
+      <button type="button" class="primary" id="lockSignInBtn">Inloggen met Google</button>
+    </div>
+
+    <div id="lockCodeArea" style="display:none;">
+      <input type="text" id="lockCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 cijfers" style="background:var(--ink-2); border:1px solid var(--line); border-radius:var(--radius); color:var(--text); font-family:var(--font-mono); font-size:22px; letter-spacing:0.25em; padding:10px 12px; width:190px;">
+      <button type="button" class="primary" id="lockVerifyBtn" style="margin-left:8px;">Ontgrendel</button>
+      <div id="lockCodeError" style="font-family:var(--font-mono); font-size:11.5px; color:var(--rust); margin-top:10px; min-height:16px;"></div>
+      <p class="advisor-disclaimer" style="margin-top:14px;">Open je authenticator (bijv. Microsoft Authenticator) en gebruik de regel <b>The Ledger Review</b> met jouw e-mailadres. Staan er meerdere, gebruik dan de nieuwste.</p>
+    </div>
+
+    <div id="lockRetryArea" style="display:none;">
+      <button type="button" id="lockRetryBtn">Opnieuw proberen</button>
+    </div>
+
+    <div id="lockMfaSlot" style="display:none;"></div>
+  </div>
+</div>
+
 <div class="wrap">
 
   <div class="auth-bar" id="authBar">
@@ -794,8 +819,6 @@
       <div id="bankLastSync" style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-bottom:6px;"></div>
       <div id="bankStatus" style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-mute); margin-bottom:14px;"></div>
       <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center;">
-        <button type="button" class="page-nav-btn active" id="txnFilterAllBtn" style="font-size:12px; padding:6px 12px; border:1px solid var(--line); border-radius:var(--radius);">All</button>
-        <button type="button" class="page-nav-btn" id="txnFilterUncatBtn" style="font-size:12px; padding:6px 12px; border:1px solid var(--line); border-radius:var(--radius);">Uncategorized</button>
         <label style="display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-left:auto;">
           Month
           <select id="txnMonthSelect" class="currency-select" style="font-size:11px; padding:6px 8px;"></select>
@@ -2498,6 +2521,47 @@ document.getElementById('signOutBtn').addEventListener('click', () => {
   if(auth) auth.signOut();
 });
 
+// ---- Vergrendelscherm: niets zichtbaar totdat je bent ingelogd, 2FA aanstaat en de code is ingevoerd ----
+let mfaPanelHome = null;
+function restoreMfaPanel(){
+  const panel = document.getElementById('mfaPanel');
+  if(mfaPanelHome && panel.parentNode !== mfaPanelHome.parent){
+    mfaPanelHome.parent.insertBefore(panel, mfaPanelHome.next);
+  }
+}
+function setLockState(state, message){
+  document.getElementById('lockScreen').style.display = 'flex';
+  document.getElementById('lockMessage').textContent = message || '';
+  const show = (id, on) => { document.getElementById(id).style.display = on ? 'block' : 'none'; };
+  show('lockSignInArea', state === 'signin');
+  show('lockCodeArea', state === 'code');
+  show('lockRetryArea', state === 'error');
+  const slot = document.getElementById('lockMfaSlot');
+  const panel = document.getElementById('mfaPanel');
+  if(state === 'setup'){
+    // Het bestaande 2FA-paneel verhuist naar het slotscherm, zodat setup daar gebeurt.
+    if(!mfaPanelHome) mfaPanelHome = { parent: panel.parentNode, next: panel.nextSibling };
+    slot.appendChild(panel);
+    slot.style.display = 'block';
+  } else {
+    slot.style.display = 'none';
+    restoreMfaPanel();
+  }
+  if(state === 'code'){ setTimeout(() => document.getElementById('lockCodeInput').focus(), 50); }
+}
+function unlockApp(){
+  restoreMfaPanel();
+  document.getElementById('lockScreen').style.display = 'none';
+}
+document.getElementById('lockSignInBtn').addEventListener('click', () => document.getElementById('signInBtn').click());
+document.getElementById('lockRetryBtn').addEventListener('click', () => {
+  if(typeof runLockGate === 'function' && currentUser) runLockGate(); else location.reload();
+});
+document.getElementById('lockVerifyBtn').addEventListener('click', () => { if(typeof submitLockCode === 'function') submitLockCode(); });
+document.getElementById('lockCodeInput').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter' && typeof submitLockCode === 'function') submitLockCode();
+});
+
 function describeAuthError(err){
   if(err && err.code === 'auth/unauthorized-domain'){
     return "This page's domain isn't authorized for sign-in yet — add it under Firebase Console → Authentication → Settings → Authorized domains.";
@@ -2588,7 +2652,7 @@ function renderMfaSetupArea(){
   if(mfaEnabled){
     statusEl.textContent = '2FA is enabled on this account.';
     statusEl.style.color = 'var(--teal)';
-    area.innerHTML = `<button type="button" id="disableMfaBtn">Disable 2FA</button>`;
+    area.innerHTML = `<div style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); line-height:1.6; margin-bottom:10px;">Gebruik in je authenticator de regel <b style="color:var(--text);">The Ledger Review</b> met jouw e-mailadres. Zijn er meerdere, dan de nieuwste.</div><button type="button" id="disableMfaBtn">Disable 2FA</button>`;
     document.getElementById('disableMfaBtn').addEventListener('click', disableMfaFlow);
   } else if(pendingMfaSecret){
     statusEl.textContent = "Scan this with your authenticator app, then enter the code it shows.";
@@ -2596,6 +2660,11 @@ function renderMfaSetupArea(){
     area.innerHTML = `
       <div id="mfaQrBox" style="background:#fff; padding:10px; border-radius:4px; width:200px; min-height:200px; display:flex; align-items:center; justify-content:center; color:#555; font-family:var(--font-mono); font-size:11px; text-align:center;">QR laden…</div>
       <div style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-mute); margin:10px 0; word-break:break-all;">Lukt scannen niet? Voer deze sleutel handmatig in: <b style="color:var(--text);">${pendingMfaSecret.secret}</b> <button type="button" id="mfaCopyKeyBtn" style="padding:3px 8px; font-size:10px;">Kopieer</button></div>
+      <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); line-height:1.6; margin:0 0 12px;">
+        <b style="color:var(--text);">Microsoft Authenticator:</b> tik op <b>+</b> → <b>Andere account (Google, Facebook, enz.)</b> → scan de QR hierboven.<br>
+        <b style="color:var(--text);">Google Authenticator:</b> <b>+</b> → <b>QR-code scannen</b>.<br>
+        Staan er al oude "The Ledger Review"-regels in je app? Verwijder die eerst — alleen de nieuwste werkt. De naam bevat vandaag's datum.
+      </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <input type="text" id="mfaConfirmCode" placeholder="6-digit code" maxlength="6" style="background:var(--ink-2); border:1px solid var(--line); border-radius:var(--radius); color:var(--text); font-family:var(--font-mono); font-size:14px; padding:8px 10px; width:120px;">
         <button type="button" class="primary" id="mfaConfirmBtn">Confirm</button>
@@ -2631,6 +2700,16 @@ function renderMfaSetupArea(){
   }
 }
 
+// Unieke, herkenbare naam per inschrijving (met datum), zodat je in je
+// authenticator kunt zien welke regel de nieuwste is.
+function buildOtpauthUrl(secret){
+  const d = new Date();
+  const stamp = `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`;
+  const account = `${(currentUser && currentUser.email) || 'account'} (${stamp})`;
+  const issuer = 'The Ledger Review';
+  return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+}
+
 async function startMfaEnrollment(){
   const statusEl = document.getElementById('mfaStatus');
   if(!currentUser){ statusEl.textContent = 'Sign in first.'; return; }
@@ -2640,11 +2719,13 @@ async function startMfaEnrollment(){
     const res = await fetch(MFA_FUNCTIONS.enrollMfaStart, { method: 'POST', headers: { 'Authorization': `Bearer ${idToken}` } });
     const data = await res.json();
     if(data.otpauthUrl){
+      data.otpauthUrl = buildOtpauthUrl(data.secret);
       pendingMfaSecret = data;
       renderMfaSetupArea();
     } else if(data.alreadyEnabled){
       mfaEnabled = true; mfaStatusKnown = true; pendingMfaSecret = null;
       renderMfaSetupArea();
+      if(document.getElementById('lockScreen').style.display !== 'none') runLockGate();
     } else {
       statusEl.textContent = 'Could not start 2FA setup: ' + (data.error || 'unknown error');
     }
@@ -2672,6 +2753,8 @@ async function confirmMfaEnrollment(){
       pendingMfaSecret = null;
       if(data.sessionToken) storeMfaSession(data.sessionToken);
       renderMfaSetupArea();
+      // Stond het slotscherm nog dicht (verplichte setup)? Dan nu openen.
+      if(document.getElementById('lockScreen').style.display !== 'none') startApp();
     } else {
       statusEl.textContent = data.error || 'Incorrect code — try again.';
     }
@@ -3238,13 +3321,6 @@ function renderMonthSummary(filtered){
   el.textContent = `${filtered.length} transaction${filtered.length===1?'':'s'} · out ${fmtAmt(spent)} · in ${fmtAmt(received)}${uncategorized ? ` · ${uncategorized} uncategorized` : ''}`;
 }
 
-function setTxnFilter(filter){
-  txnFilter = filter;
-  document.getElementById('txnFilterAllBtn').classList.toggle('active', filter === 'all');
-  document.getElementById('txnFilterUncatBtn').classList.toggle('active', filter === 'uncategorized');
-  renderTransactionsListFromCache();
-}
-
 function setTxnMonth(month){
   txnMonth = month;
   renderTransactionsListFromCache();
@@ -3371,7 +3447,69 @@ async function computeSpendByCategory(){
 // Async-functies die in dit blok staan zijn van buiten het blok niet zichtbaar.
 // Zonder deze regel meldden de knoppen Connect / Sync / Add rule dat de bank
 // "niet beschikbaar" was, ook al werkte alles gewoon.
-Object.assign(window, { addMerchantRuleManually, applySuggestedCategories, checkBankConsentExpiry, connectBank, loadTransactionsList, openCategorizePage, setCatMonth, setTxnFilter, setTxnMonth, syncBank });
+Object.assign(window, { addMerchantRuleManually, applySuggestedCategories, checkBankConsentExpiry, connectBank, loadTransactionsList, openCategorizePage, setCatMonth, setTxnMonth, syncBank, runLockGate, submitLockCode });
+
+let appStarted = false;
+
+// Pas ná de poort laden we je data en starten we de bank-onderdelen.
+async function startApp(){
+  if(appStarted) return;
+  appStarted = true;
+  unlockApp();
+  await loadFromCloud();
+  await handleBankAuthCallback();
+  await loadTransactionsList();
+  loadLastSyncInfo();
+  checkBankConsentExpiry();
+  maybeAutoSync();
+}
+
+// De poort: ingelogd -> 2FA-status -> (setup nodig | code nodig | open).
+// Faalt de status-check, dan blijft alles dicht (niet open).
+async function runLockGate(){
+  if(!currentUser) return;
+  appStarted = false;
+  setLockState('loading', '2FA-status controleren…');
+  await checkMfaStatus();
+  if(!mfaStatusKnown){
+    setLockState('error', 'Ik kan je 2FA-status niet ophalen, dus alles blijft uit voorzorg vergrendeld. Controleer je verbinding en of de nieuwste functions zijn gedeployed.');
+    return;
+  }
+  if(!mfaEnabled){
+    setLockState('setup', 'Stel eerst 2FA in. Zolang dat niet gedaan is, blijft alles vergrendeld.');
+    return;
+  }
+  if(getStoredMfaSession()){ await startApp(); return; }
+  setLockState('code', 'Voer de 6 cijfers uit je authenticator in om te ontgrendelen.');
+}
+
+async function submitLockCode(){
+  const input = document.getElementById('lockCodeInput');
+  const err = document.getElementById('lockCodeError');
+  const btn = document.getElementById('lockVerifyBtn');
+  const code = input.value.trim();
+  if(!/^\d{6}$/.test(code)){ err.textContent = 'Voer precies 6 cijfers in.'; return; }
+  btn.disabled = true; err.textContent = 'Controleren…';
+  try{
+    const idToken = await currentUser.getIdToken();
+    const res = await fetch(MFA_FUNCTIONS.verifyMfaCode, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    if(data.sessionToken){
+      storeMfaSession(data.sessionToken);
+      input.value = ''; err.textContent = '';
+      await startApp();
+    } else {
+      err.textContent = data.error || 'Onjuiste code.';
+    }
+  }catch(e){
+    err.textContent = 'Kon de 2FA-service niet bereiken.';
+  }
+  btn.disabled = false;
+}
 
 auth.onAuthStateChanged(async (user) => {
   currentUser = user;
@@ -3383,32 +3521,22 @@ auth.onAuthStateChanged(async (user) => {
     statusEl.classList.add('signed-in');
     signInBtn.style.display = 'none';
     signOutBtn.style.display = 'inline-block';
-    await checkMfaStatus();
-    if(!mfaStatusKnown) statusEl.textContent = 'Ingelogd — 2FA-status onbekend, zie het paneel "Two-factor authentication".';
-    if(mfaEnabled){
-      const token = await ensureMfaSession();
-      if(!token){
-        statusEl.textContent = '2FA verification required to continue.';
-        return;
-      }
-    }
-    await loadFromCloud();
-    await handleBankAuthCallback();
-    await loadTransactionsList();
-    loadLastSyncInfo();
-    checkBankConsentExpiry();
-    maybeAutoSync();
+    await runLockGate();
   } else {
-    statusEl.textContent = 'Not signed in — saving to this device only.';
+    appStarted = false;
+    clearMfaSession();
+    mfaEnabled = false; mfaStatusKnown = false;
+    statusEl.textContent = 'Not signed in.';
     statusEl.classList.remove('signed-in');
     signInBtn.style.display = 'inline-block';
     signOutBtn.style.display = 'none';
+    setLockState('signin', 'Log in met Google om verder te gaan.');
   }
 });
 } else {
-  document.getElementById('authStatus').textContent = 'Cloud sync unavailable in this preview — saving to this device only.';
   document.getElementById('signInBtn').style.display = 'none';
   document.getElementById('signOutBtn').style.display = 'none';
+  setLockState('error', 'Firebase kon niet laden (geblokkeerd of geen verbinding), dus alles blijft uit voorzorg vergrendeld.');
 }
 
 const dismissBtn = document.getElementById('errorBannerClose');
@@ -3447,12 +3575,6 @@ document.getElementById('connectBankBtn').addEventListener('click', () => {
 document.getElementById('syncBankBtn').addEventListener('click', () => {
   if(typeof syncBank === 'function') syncBank();
   else document.getElementById('bankStatus').textContent = 'Bank connection is unavailable in this preview.';
-});
-document.getElementById('txnFilterAllBtn').addEventListener('click', () => {
-  if(typeof setTxnFilter === 'function') setTxnFilter('all');
-});
-document.getElementById('txnFilterUncatBtn').addEventListener('click', () => {
-  if(typeof setTxnFilter === 'function') setTxnFilter('uncategorized');
 });
 document.getElementById('txnMonthSelect').addEventListener('change', (e) => {
   if(typeof setTxnMonth === 'function') setTxnMonth(e.target.value);
