@@ -818,14 +818,17 @@
       </div>
       <div id="bankLastSync" style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-bottom:6px;"></div>
       <div id="bankStatus" style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-mute); margin-bottom:14px;"></div>
-      <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center;">
-        <label style="display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-left:auto;">
-          Month
-          <select id="txnMonthSelect" class="currency-select" style="font-size:11px; padding:6px 8px;"></select>
-        </label>
+      <button type="button" id="toggleTxnBtn" style="margin-bottom:10px;">Toon transacties ▾</button>
+      <div id="txnBrowser" style="display:none;">
+        <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center;">
+          <label style="display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-left:auto;">
+            Month
+            <select id="txnMonthSelect" class="currency-select" style="font-size:11px; padding:6px 8px;"></select>
+          </label>
+        </div>
+        <div id="txnMonthSummary" style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-bottom:10px;"></div>
+        <div id="transactionsList"></div>
       </div>
-      <div id="txnMonthSummary" style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); margin-bottom:10px;"></div>
-      <div id="transactionsList"></div>
 
       <div class="account-group" style="margin-top:22px;">
         <div class="account-group-head">
@@ -3278,7 +3281,20 @@ async function openCategorizePage(){
   renderCategorizePage();
 }
 
+// De volledige lijst staat standaard ingeklapt; de te-categoriseren betalingen
+// staan op hun eigen tab.
+let txnBrowserOpen = false;
+function updateTxnToggle(){
+  const btn = document.getElementById('toggleTxnBtn');
+  const box = document.getElementById('txnBrowser');
+  if(!btn || !box) return;
+  box.style.display = txnBrowserOpen ? 'block' : 'none';
+  btn.textContent = `${txnBrowserOpen ? 'Verberg' : 'Toon'} transacties (${allTransactionsCache.length}) ${txnBrowserOpen ? '▴' : '▾'}`;
+}
+document.getElementById('toggleTxnBtn').addEventListener('click', () => { txnBrowserOpen = !txnBrowserOpen; updateTxnToggle(); });
+
 function renderTransactionsListFromCache(){
+  updateTxnToggle();
   refreshCategorizeViews();
   const container = document.getElementById('transactionsList');
   let filtered = allTransactionsCache;
