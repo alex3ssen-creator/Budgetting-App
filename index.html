@@ -511,10 +511,17 @@
     </div>
 
     <div id="lockCodeArea" style="display:none;">
-      <input type="text" id="lockCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 cijfers" style="background:var(--ink-2); border:1px solid var(--line); border-radius:var(--radius); color:var(--text); font-family:var(--font-mono); font-size:22px; letter-spacing:0.25em; padding:10px 12px; width:190px;">
-      <button type="button" class="primary" id="lockVerifyBtn" style="margin-left:8px;">Ontgrendel</button>
-      <div id="lockCodeError" style="font-family:var(--font-mono); font-size:11.5px; color:var(--rust); margin-top:10px; min-height:16px;"></div>
-      <p class="advisor-disclaimer" style="margin-top:14px;">Open je authenticator (bijv. Microsoft Authenticator) en gebruik de regel <b>The Ledger Review</b> met jouw e-mailadres. Staan er meerdere, gebruik dan de nieuwste.</p>
+      <div id="lockPasskeyArea" style="display:none; margin-bottom:18px;">
+        <button type="button" class="primary" id="lockPasskeyBtn" style="font-size:15px; padding:12px 20px;">🔐 Ontgrendel met vingerafdruk</button>
+        <div id="lockPasskeyError" style="font-family:var(--font-mono); font-size:11.5px; color:var(--rust); margin-top:10px; min-height:16px;"></div>
+      </div>
+      <div id="lockTotpArea">
+        <div id="lockTotpLabel" style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-mute); margin-bottom:8px;">Voer de 6 cijfers uit je authenticator in:</div>
+        <input type="text" id="lockCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 cijfers" style="background:var(--ink-2); border:1px solid var(--line); border-radius:var(--radius); color:var(--text); font-family:var(--font-mono); font-size:22px; letter-spacing:0.25em; padding:10px 12px; width:190px;">
+        <button type="button" class="primary" id="lockVerifyBtn" style="margin-left:8px;">Ontgrendel</button>
+        <div id="lockCodeError" style="font-family:var(--font-mono); font-size:11.5px; color:var(--rust); margin-top:10px; min-height:16px;"></div>
+        <p class="advisor-disclaimer" style="margin-top:14px;">Open je authenticator (bijv. Microsoft Authenticator) en gebruik de regel <b>The Ledger Review</b> met jouw e-mailadres. Staan er meerdere, gebruik dan de nieuwste.</p>
+      </div>
     </div>
 
     <div id="lockRetryArea" style="display:none;">
@@ -841,6 +848,25 @@
           <button type="button" id="addRuleBtn">Add rule</button>
         </div>
       </div>
+
+      <details id="ownAccountsBox" style="margin-top:22px;">
+        <summary style="cursor:pointer; font-family:var(--font-mono); font-size:12px; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-mute);">Eigen rekeningen &amp; overboekingen <span class="nav-badge" id="ownSuggestBadge"></span></summary>
+        <div style="padding-top:12px;">
+          <p class="advisor-disclaimer" style="margin:0 0 12px;">
+            Geld dat je naar je eigen rekeningen overmaakt (bijvoorbeeld een spaarrekening) telt niet als uitgave of inkomen. Voeg die rekeningnummers toe en koppel ze aan een spaar- of beleggingsrekening, dan kun je het saldo vanuit de bank bijwerken.
+          </p>
+          <div id="ownSuggestions"></div>
+          <div id="ownAccountsList"></div>
+          <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+            <input type="text" id="ownIbanInput" placeholder="IBAN (bijv. NL91 ABNA 0417 1643 00)" style="flex:1; min-width:200px; background:var(--ink-2); border:1px solid var(--line); border-radius:var(--radius); color:var(--text); font-family:var(--font-mono); font-size:12px; padding:8px 10px;">
+            <input type="text" id="ownLabelInput" placeholder="Naam (bijv. Spaarrekening)" style="flex:1; min-width:150px; background:var(--ink-2); border:1px solid var(--line); border-radius:var(--radius); color:var(--text); font-family:var(--font-mono); font-size:12px; padding:8px 10px;">
+            <select id="ownLinkSelect" class="currency-select" style="font-size:12px;"></select>
+            <button type="button" id="addOwnAccountBtn">Toevoegen</button>
+          </div>
+          <div id="ownAccountsMsg" style="font-family:var(--font-mono); font-size:11.5px; color:var(--rust); margin-top:8px; min-height:16px;"></div>
+          <div id="ownPending" style="margin-top:6px;"></div>
+        </div>
+      </details>
     </div>
   </div>
   </div>
@@ -1637,6 +1663,10 @@ function findAccount(groupKey, id){
   return (savingsAccounts[groupKey] || []).find(a => a.id === id);
 }
 
+// Rekeningen die aan een bankrekening (IBAN) gekoppeld zijn, worden via echte overboekingen
+// bijgewerkt; de schatting uit de budgetregel zou ze dubbel tellen.
+let bankLinkedAccountIds = new Set();
+
 function latestBalance(account){
   if(!account.log || account.log.length === 0) return null;
   const sorted = [...account.log].sort((a,b) => a.date.localeCompare(b.date));
@@ -1677,6 +1707,7 @@ function applySavingsContributions(monthKey){
       match = allAccounts.find(a => a.name.trim().toLowerCase() === item.name.trim().toLowerCase());
     }
     if(!match) return;
+    if(bankLinkedAccountIds.has(match.id)) return; // dit saldo komt uit echte bankoverboekingen
     ensureContributionsField(match);
     const previouslyApplied = match.contributionsApplied[monthKey] || 0;
     const delta = item.amt - previouslyApplied;
@@ -2561,6 +2592,7 @@ document.getElementById('lockRetryBtn').addEventListener('click', () => {
   if(typeof runLockGate === 'function' && currentUser) runLockGate(); else location.reload();
 });
 document.getElementById('lockVerifyBtn').addEventListener('click', () => { if(typeof submitLockCode === 'function') submitLockCode(); });
+document.getElementById('lockPasskeyBtn').addEventListener('click', () => { if(typeof unlockWithPasskey === 'function') unlockWithPasskey(); });
 document.getElementById('lockCodeInput').addEventListener('keydown', (e) => {
   if(e.key === 'Enter' && typeof submitLockCode === 'function') submitLockCode();
 });
@@ -2600,12 +2632,16 @@ const MFA_FUNCTIONS = {
   enrollMfaConfirm: 'https://enrollmfaconfirm-hqxswmprga-uc.a.run.app',
   verifyMfaCode: 'https://verifymfacode-hqxswmprga-uc.a.run.app',
   disableMfa: 'https://disablemfa-hqxswmprga-uc.a.run.app',
-  mfaStatus: 'https://mfastatus-hqxswmprga-uc.a.run.app'
+  mfaStatus: 'https://mfastatus-hqxswmprga-uc.a.run.app',
+  passkey: 'https://us-central1-to-do-application-5fc56.cloudfunctions.net/passkey'
 };
 
 const MFA_SESSION_KEY = 'ledger-review-mfa-session';
 let mfaEnabled = false;
 let mfaStatusKnown = false;
+let mfaTotp = false;      // authenticator-code ingesteld?
+let mfaPasskeys = [];     // ingestelde passkeys: [{ id, name, createdAt }]
+let lastPasskeyError = '';
 let pendingMfaSecret = null; // holds the secret+QR data during enrollment, before confirmed
 
 // Stored in localStorage rather than a plain variable — connecting a bank
@@ -2635,7 +2671,11 @@ async function checkMfaStatus(){
     const res = await fetch(MFA_FUNCTIONS.mfaStatus, { method: 'POST', headers: { 'Authorization': `Bearer ${idToken}` } });
     if(res.ok){
       const d = await res.json();
-      if(typeof d.enabled === 'boolean'){ mfaEnabled = d.enabled; mfaStatusKnown = true; }
+      if(typeof d.enabled === 'boolean'){
+        mfaEnabled = d.enabled; mfaStatusKnown = true;
+        mfaTotp = d.totp === undefined ? d.enabled : !!d.totp;
+        mfaPasskeys = Array.isArray(d.passkeys) ? d.passkeys : [];
+      }
     }
   }catch(e){ /* terugval hieronder */ }
   // 2) Terugval: rechtstreeks uit Firestore.
@@ -2643,21 +2683,19 @@ async function checkMfaStatus(){
     try{
       const doc = await db.doc(`users/${currentUser.uid}/security/mfa`).get();
       mfaEnabled = doc.exists && doc.data().enabled === true;
+      mfaTotp = mfaEnabled; mfaPasskeys = [];
       mfaStatusKnown = true;
     }catch(e){ /* status blijft onbekend */ }
   }
   renderMfaSetupArea();
 }
 
+function mfaEsc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
 function renderMfaSetupArea(){
   const statusEl = document.getElementById('mfaStatus');
   const area = document.getElementById('mfaSetupArea');
-  if(mfaEnabled){
-    statusEl.textContent = '2FA is enabled on this account.';
-    statusEl.style.color = 'var(--teal)';
-    area.innerHTML = `<div style="font-family:var(--font-mono); font-size:11px; color:var(--text-mute); line-height:1.6; margin-bottom:10px;">Gebruik in je authenticator de regel <b style="color:var(--text);">The Ledger Review</b> met jouw e-mailadres. Zijn er meerdere, dan de nieuwste.</div><button type="button" id="disableMfaBtn">Disable 2FA</button>`;
-    document.getElementById('disableMfaBtn').addEventListener('click', disableMfaFlow);
-  } else if(pendingMfaSecret){
+  if(pendingMfaSecret){
     statusEl.textContent = "Scan this with your authenticator app, then enter the code it shows.";
     statusEl.style.color = 'var(--text-mute)';
     area.innerHTML = `
@@ -2696,10 +2734,32 @@ function renderMfaSetupArea(){
     area.innerHTML = `<button type="button" id="retryMfaBtn">Opnieuw proberen</button>`;
     document.getElementById('retryMfaBtn').addEventListener('click', checkMfaStatus);
   } else {
-    statusEl.textContent = 'Not enabled yet.';
-    statusEl.style.color = 'var(--text-mute)';
-    area.innerHTML = `<button type="button" class="primary" id="startMfaBtn">Set up 2FA</button>`;
-    document.getElementById('startMfaBtn').addEventListener('click', startMfaEnrollment);
+    const supported = webauthnSupported();
+    const parts = [];
+    if(mfaPasskeys.length) parts.push(`vingerafdruk/passkey (${mfaPasskeys.length})`);
+    if(mfaTotp) parts.push('authenticator-code');
+    statusEl.textContent = mfaEnabled ? `2FA staat aan: ${parts.join(' + ')}.` : 'Nog niet ingesteld — kies hieronder hoe je wilt ontgrendelen.';
+    statusEl.style.color = mfaEnabled ? 'var(--teal)' : 'var(--text-mute)';
+    const hint = 'font-family:var(--font-mono); font-size:11px; color:var(--text-mute); line-height:1.6; margin:0 0 10px;';
+    let h = '';
+    if(mfaPasskeys.length){
+      h += '<div style="margin-bottom:12px;">' + mfaPasskeys.map(p =>
+        `<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; font-family:var(--font-mono); font-size:12px; padding:6px 0; border-bottom:1px solid var(--line);"><span>🔐 ${mfaEsc(p.name)}</span><button type="button" class="removePasskeyBtn" data-id="${mfaEsc(p.id)}" style="padding:3px 8px; font-size:10px;">Verwijder</button></div>`
+      ).join('') + '</div>';
+    }
+    h += '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">';
+    if(supported) h += `<button type="button" class="primary" id="addPasskeyBtn">🔐 Vingerafdruk / passkey ${mfaPasskeys.length ? 'toevoegen' : 'instellen'}</button>`;
+    if(!mfaTotp) h += '<button type="button" id="startMfaBtn">Authenticator-code instellen</button>';
+    if(mfaTotp) h += '<button type="button" id="disableMfaBtn">Authenticator-code uitschakelen</button>';
+    h += '</div>';
+    if(!supported) h += `<div style="${hint}">Deze browser of dit apparaat ondersteunt geen passkeys; gebruik een authenticator-code.</div>`;
+    if(supported) h += `<div style="${hint}">Een passkey hoort bij dit adres (<b style="color:var(--text);">${mfaEsc(location.hostname)}</b>). Op een ander adres of apparaat stel je hem apart in.</div>`;
+    if(mfaTotp) h += `<div style="${hint}">Authenticator: gebruik de regel <b style="color:var(--text);">The Ledger Review</b> met jouw e-mailadres (bij meerdere: de nieuwste).</div>`;
+    area.innerHTML = h;
+    const add = document.getElementById('addPasskeyBtn'); if(add) add.addEventListener('click', registerPasskey);
+    const st = document.getElementById('startMfaBtn'); if(st) st.addEventListener('click', startMfaEnrollment);
+    const dis = document.getElementById('disableMfaBtn'); if(dis) dis.addEventListener('click', disableMfaFlow);
+    area.querySelectorAll('.removePasskeyBtn').forEach(b => b.addEventListener('click', () => removePasskey(b.dataset.id)));
   }
 }
 
@@ -2719,14 +2779,17 @@ async function startMfaEnrollment(){
   statusEl.textContent = 'Generating your 2FA setup…';
   try{
     const idToken = await currentUser.getIdToken();
-    const res = await fetch(MFA_FUNCTIONS.enrollMfaStart, { method: 'POST', headers: { 'Authorization': `Bearer ${idToken}` } });
+    const session = mfaEnabled ? await ensureMfaSession() : null;
+    const startHeaders = { 'Authorization': `Bearer ${idToken}` };
+    if(session) startHeaders['X-MFA-Token'] = session;
+    const res = await fetch(MFA_FUNCTIONS.enrollMfaStart, { method: 'POST', headers: startHeaders });
     const data = await res.json();
     if(data.otpauthUrl){
       data.otpauthUrl = buildOtpauthUrl(data.secret);
       pendingMfaSecret = data;
       renderMfaSetupArea();
     } else if(data.alreadyEnabled){
-      mfaEnabled = true; mfaStatusKnown = true; pendingMfaSecret = null;
+      mfaEnabled = true; mfaTotp = true; mfaStatusKnown = true; pendingMfaSecret = null;
       renderMfaSetupArea();
       if(document.getElementById('lockScreen').style.display !== 'none') runLockGate();
     } else {
@@ -2745,14 +2808,17 @@ async function confirmMfaEnrollment(){
   statusEl.textContent = 'Confirming…';
   try{
     const idToken = await currentUser.getIdToken();
+    const confirmHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` };
+    const heldSession = getStoredMfaSession();
+    if(heldSession) confirmHeaders['X-MFA-Token'] = heldSession;
     const res = await fetch(MFA_FUNCTIONS.enrollMfaConfirm, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      headers: confirmHeaders,
       body: JSON.stringify({ code })
     });
     const data = await res.json();
     if(data.enabled){
-      mfaEnabled = true;
+      mfaEnabled = true; mfaTotp = true;
       pendingMfaSecret = null;
       if(data.sessionToken) storeMfaSession(data.sessionToken);
       renderMfaSetupArea();
@@ -2767,20 +2833,27 @@ async function confirmMfaEnrollment(){
 }
 
 async function disableMfaFlow(){
-  const code = window.prompt('Enter your current 2FA code to disable it:');
-  if(!code) return;
   const statusEl = document.getElementById('mfaStatus');
+  const headers = { 'Content-Type': 'application/json' };
+  let body = {};
+  if(mfaPasskeys.length){
+    // Er is ook een passkey: een verse tweede stap daarmee volstaat, geen code nodig.
+    const session = await ensureMfaSession();
+    if(!session){ statusEl.textContent = 'Bevestig eerst met je passkey om de authenticator-code uit te zetten.'; return; }
+    headers['X-MFA-Token'] = session;
+  } else {
+    const code = window.prompt('Enter your current 2FA code to disable it:');
+    if(!code) return;
+    body = { code };
+  }
   try{
-    const idToken = await currentUser.getIdToken();
-    const res = await fetch(MFA_FUNCTIONS.disableMfa, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-      body: JSON.stringify({ code })
-    });
+    headers['Authorization'] = `Bearer ${await currentUser.getIdToken()}`;
+    const res = await fetch(MFA_FUNCTIONS.disableMfa, { method: 'POST', headers, body: JSON.stringify(body) });
     const data = await res.json();
     if(data.disabled){
-      mfaEnabled = false;
-      clearMfaSession();
+      mfaTotp = false;
+      mfaEnabled = mfaPasskeys.length > 0;
+      if(!mfaEnabled) clearMfaSession();
       renderMfaSetupArea();
     } else {
       statusEl.textContent = data.error || 'Could not disable 2FA.';
@@ -2790,14 +2863,137 @@ async function disableMfaFlow(){
   }
 }
 
+// ---- Passkeys (vingerafdruk) ----
+function webauthnSupported(){
+  return !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);
+}
+function b64uToBuf(s){
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(s + '='.repeat((4 - s.length % 4) % 4));
+  const b = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  return b.buffer;
+}
+function bufToB64u(buf){
+  const b = new Uint8Array(buf);
+  let s = '';
+  for(let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function decodeCreationOptions(o){
+  return { ...o, challenge: b64uToBuf(o.challenge), user: { ...o.user, id: b64uToBuf(o.user.id) },
+    excludeCredentials: (o.excludeCredentials || []).map(c => ({ ...c, id: b64uToBuf(c.id) })) };
+}
+function decodeRequestOptions(o){
+  return { ...o, challenge: b64uToBuf(o.challenge),
+    allowCredentials: (o.allowCredentials || []).map(c => ({ ...c, id: b64uToBuf(c.id) })) };
+}
+function serializeCredential(c){
+  return { id: c.id, rawId: bufToB64u(c.rawId), type: c.type,
+    clientExtensionResults: c.getClientExtensionResults ? c.getClientExtensionResults() : {},
+    response: { clientDataJSON: bufToB64u(c.response.clientDataJSON), attestationObject: bufToB64u(c.response.attestationObject),
+      transports: c.response.getTransports ? c.response.getTransports() : [] } };
+}
+function serializeAssertion(c){
+  return { id: c.id, rawId: bufToB64u(c.rawId), type: c.type,
+    clientExtensionResults: c.getClientExtensionResults ? c.getClientExtensionResults() : {},
+    response: { clientDataJSON: bufToB64u(c.response.clientDataJSON), authenticatorData: bufToB64u(c.response.authenticatorData),
+      signature: bufToB64u(c.response.signature), userHandle: c.response.userHandle ? bufToB64u(c.response.userHandle) : undefined } };
+}
+function guessDeviceLabel(){
+  const ua = navigator.userAgent || '';
+  const d = new Date();
+  const base = /iPhone|iPad/.test(ua) ? 'iPhone/iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac' : 'Apparaat';
+  return `${base} ${d.getDate()}-${d.getMonth() + 1}`;
+}
+async function passkeyCall(action, extra, sessionToken){
+  const idToken = await currentUser.getIdToken();
+  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` };
+  if(sessionToken) headers['X-MFA-Token'] = sessionToken;
+  const res = await fetch(MFA_FUNCTIONS.passkey, { method: 'POST', headers, body: JSON.stringify({ action, origin: location.origin, ...(extra || {}) }) });
+  try{ return await res.json(); }catch(e){ return { error: 'Onverwacht antwoord van de server.' }; }
+}
+function passkeyErrorText(e){
+  if(e && e.name === 'NotAllowedError') return 'Geannuleerd of verlopen — probeer het opnieuw.';
+  if(e && e.name === 'InvalidStateError') return 'Deze passkey staat al op dit apparaat.';
+  return 'Mislukt: ' + ((e && e.message) || 'onbekende fout');
+}
+
+// Ontgrendelen met een passkey. Geeft een sessietoken terug, of null (reden in lastPasskeyError).
+async function authenticateWithPasskey(){
+  lastPasskeyError = '';
+  try{
+    const opts = await passkeyCall('authOptions');
+    if(!opts.challenge){ lastPasskeyError = opts.error || 'Kon de controle niet starten.'; return null; }
+    const cred = await navigator.credentials.get({ publicKey: decodeRequestOptions(opts) });
+    const out = await passkeyCall('authVerify', { response: serializeAssertion(cred) });
+    if(out.sessionToken){ storeMfaSession(out.sessionToken); return out.sessionToken; }
+    lastPasskeyError = out.error || 'Niet herkend.';
+    return null;
+  }catch(e){
+    lastPasskeyError = passkeyErrorText(e);
+    return null;
+  }
+}
+
+async function registerPasskey(){
+  const statusEl = document.getElementById('mfaStatus');
+  if(!currentUser){ statusEl.textContent = 'Sign in first.'; return; }
+  try{
+    // Staat er al een tweede stap aan, dan eerst die bevestigen: zo kan niemand zomaar een eigen passkey toevoegen.
+    const session = mfaEnabled ? await ensureMfaSession() : null;
+    if(mfaEnabled && !session){ statusEl.textContent = 'Bevestig eerst je huidige tweede stap om een passkey toe te voegen.'; return; }
+    statusEl.textContent = 'Wachten op je vingerafdruk…';
+    const opts = await passkeyCall('registerOptions', {}, session);
+    if(!opts.challenge){ statusEl.textContent = opts.error || 'Kon niet starten.'; return; }
+    const cred = await navigator.credentials.create({ publicKey: decodeCreationOptions(opts) });
+    const out = await passkeyCall('registerVerify', { response: serializeCredential(cred), label: guessDeviceLabel() }, session);
+    if(out.verified){
+      storeMfaSession(out.sessionToken);
+      await checkMfaStatus();
+      if(document.getElementById('lockScreen').style.display !== 'none') startApp();
+    } else {
+      statusEl.textContent = out.error || 'Passkey instellen mislukt.';
+    }
+  }catch(e){
+    statusEl.textContent = 'Passkey instellen ' + passkeyErrorText(e).toLowerCase();
+  }
+}
+
+async function removePasskey(id){
+  const statusEl = document.getElementById('mfaStatus');
+  if(!window.confirm('Deze passkey verwijderen?')) return;
+  const session = await ensureMfaSession();
+  if(!session){ statusEl.textContent = 'Bevestig eerst je tweede stap om een passkey te verwijderen.'; return; }
+  const out = await passkeyCall('remove', { id }, session);
+  if(out.error){ statusEl.textContent = out.error; return; }
+  await checkMfaStatus();
+}
+
+async function unlockWithPasskey(){
+  const err = document.getElementById('lockPasskeyError');
+  const btn = document.getElementById('lockPasskeyBtn');
+  btn.disabled = true; err.textContent = 'Wachten op je vingerafdruk…';
+  const token = await authenticateWithPasskey();
+  btn.disabled = false;
+  if(token){ err.textContent = ''; await startApp(); }
+  else err.textContent = lastPasskeyError || 'Niet gelukt — probeer opnieuw.';
+}
+
 // Returns a valid, unexpired session token — prompting for a fresh code
 // if none is stored or it's aged out. Returns null if the user cancels
 // or the code is wrong, so callers can cleanly stop rather than proceed.
+// Heb je een passkey, dan wordt eerst die gevraagd; anders (of als je annuleert en ook een code hebt) de code.
 async function ensureMfaSession(){
   if(!mfaEnabled) return null; // not enrolled — nothing to attach
   const existing = getStoredMfaSession();
   if(existing) return existing;
 
+  if(mfaPasskeys.length && webauthnSupported()){
+    const viaPasskey = await authenticateWithPasskey();
+    if(viaPasskey) return viaPasskey;
+    if(!mfaTotp) return null; // alleen passkeys en die lukte niet
+  }
   const code = window.prompt('Enter your 2FA code to continue:');
   if(!code) return null;
   try{
@@ -3083,11 +3279,213 @@ async function saveMerchantRules(){
   }catch(e){ /* best-effort */ }
 }
 
+// ---- Eigen rekeningen & overboekingen ----
+// Betalingen tussen je eigen rekeningen zijn geen uitgave en geen inkomen.
+let ownAccounts = [];        // [{ iban, label, linkedAccountId }] — door jou toegevoegd
+let connectedAccounts = [];  // [{ iban, name }] — de gekoppelde bankrekening(en)
+let ownMapCache = null;
+
+const normIban = (s) => String(s || '').replace(/\s+/g, '').toUpperCase();
+const nameKey = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+function ibanValid(iban){
+  if(!/^[A-Z]{2}\d{2}[A-Z0-9]{8,30}$/.test(iban)) return false;
+  const moved = iban.slice(4) + iban.slice(0, 4);
+  let digits = '';
+  for(const ch of moved) digits += /[A-Z]/.test(ch) ? String(ch.charCodeAt(0) - 55) : ch;
+  let rem = 0;
+  for(let i = 0; i < digits.length; i += 7) rem = Number(String(rem) + digits.slice(i, i + 7)) % 97;
+  return rem === 1;
+}
+
+// De andere kant van de betaling: bij een uitgave de ontvanger, bij inkomen de afzender.
+function counterpartyOf(t){
+  const debit = signedAmount(t) < 0;
+  const acct = debit ? t.creditor_account : t.debtor_account;
+  const who = debit ? t.creditor : t.debtor;
+  return { iban: normIban(acct && acct.iban), name: (who && who.name) || '' };
+}
+
+function ownIbanMap(){
+  const m = new Map();
+  connectedAccounts.forEach(a => { if(a.iban) m.set(a.iban, { label: 'Gekoppelde rekening', linkedAccountId: null }); });
+  ownAccounts.forEach(a => { if(a.iban) m.set(normIban(a.iban), { label: a.label || 'Eigen rekening', linkedAccountId: a.linkedAccountId || null }); });
+  return m;
+}
+
+function ownTransferOf(t){
+  if(!ownMapCache) ownMapCache = ownIbanMap();
+  const c = counterpartyOf(t);
+  return c.iban && ownMapCache.has(c.iban) ? { ...ownMapCache.get(c.iban), iban: c.iban } : null;
+}
+
+// Is dit een overboeking (herkend aan het rekeningnummer, of door jou zo gemarkeerd)?
+function transferInfo(item){
+  const t = item.data;
+  const own = ownTransferOf(t);
+  if(own) return own;
+  const cat = t.category || merchantRules[normalizeMerchant(extractTransactionDesc(t))];
+  return cat === 'transfer' ? { label: 'Eigen overboeking', linkedAccountId: null, iban: counterpartyOf(t).iban } : null;
+}
+
+async function loadOwnAccounts(){
+  ownAccounts = []; connectedAccounts = []; ownMapCache = null;
+  if(!db || !currentUser) return;
+  try{
+    const d = await db.doc(`users/${currentUser.uid}/bank/ownAccounts`).get();
+    if(d.exists && Array.isArray(d.data().accounts)) ownAccounts = d.data().accounts;
+  }catch(e){ /* best-effort */ }
+  try{
+    const s = await db.doc(`users/${currentUser.uid}/bank/session`).get();
+    if(s.exists && Array.isArray(s.data().accounts)){
+      connectedAccounts = s.data().accounts
+        .map(a => ({ iban: normIban(a.account_id && a.account_id.iban), name: a.name || '' }))
+        .filter(a => a.iban);
+    }
+  }catch(e){ /* best-effort */ }
+  bankLinkedAccountIds = new Set(ownAccounts.map(a => a.linkedAccountId).filter(Boolean));
+}
+
+async function saveOwnAccounts(){
+  ownMapCache = null;
+  bankLinkedAccountIds = new Set(ownAccounts.map(a => a.linkedAccountId).filter(Boolean));
+  try{ await db.doc(`users/${currentUser.uid}/bank/ownAccounts`).set({ accounts: ownAccounts }); }catch(e){ /* best-effort */ }
+}
+
+// Rekeningnummers waar je regelmatig naartoe betaalt onder je eigen naam, maar die je nog niet hebt toegevoegd.
+function ownSuggestions(){
+  const names = new Set(connectedAccounts.map(a => nameKey(a.name)).filter(Boolean));
+  if(names.size === 0) return [];
+  if(!ownMapCache) ownMapCache = ownIbanMap();
+  const groups = new Map();
+  allTransactionsCache.forEach(item => {
+    const c = counterpartyOf(item.data);
+    if(!c.iban || ownMapCache.has(c.iban) || !names.has(nameKey(c.name))) return;
+    const g = groups.get(c.iban) || { iban: c.iban, name: c.name, count: 0, out: 0, in: 0 };
+    const amt = signedAmount(item.data) || 0;
+    g.count++; if(amt < 0) g.out += -amt; else g.in += amt;
+    groups.set(c.iban, g);
+  });
+  return [...groups.values()].sort((a, b) => b.count - a.count);
+}
+
+function findLinkedAccount(id){ return findAccount('savings', id) || findAccount('investments', id); }
+
+// Overboekingen sinds het laatst vastgelegde saldo van de gekoppelde spaarrekening.
+// Door vanaf die datum te tellen kan niets dubbel worden verwerkt.
+function pendingTransfersFor(own){
+  const acct = findLinkedAccount(own.linkedAccountId);
+  if(!acct) return null;
+  if(!acct.log || acct.log.length === 0) return { acct, needsBaseline: true };
+  const cutoff = [...acct.log].sort((a, b) => a.date.localeCompare(b.date)).pop().date;
+  const iban = normIban(own.iban);
+  const items = allTransactionsCache.filter(i => {
+    const info = ownTransferOf(i.data);
+    return info && info.iban === iban && txnDate(i.data) > cutoff;
+  });
+  let net = 0, lastDate = cutoff;
+  items.forEach(i => {
+    net += -(signedAmount(i.data) || 0); // eraf bij je betaalrekening = erbij op de spaarrekening
+    if(txnDate(i.data) > lastDate) lastDate = txnDate(i.data);
+  });
+  return { acct, items, net, cutoff, lastDate };
+}
+
+async function processOwnTransfers(iban){
+  const own = ownAccounts.find(a => normIban(a.iban) === iban);
+  const p = own && pendingTransfersFor(own);
+  if(!p || p.needsBaseline || p.items.length === 0) return;
+  const newBalance = Math.max(0, (latestBalance(p.acct) || 0) + p.net);
+  p.acct.log = p.acct.log.filter(e => e.date !== p.lastDate);
+  p.acct.log.push({ date: p.lastDate, balance: newBalance });
+  await persistSavingsAccounts();
+  renderSavingsAccounts();
+  renderOwnAccountsUi();
+}
+
+function ownLinkOptionsHtml(selectedId){
+  const opts = ['<option value="">— niet koppelen —</option>'];
+  [['savings', 'Sparen'], ['investments', 'Beleggen']].forEach(([g, label]) => {
+    (savingsAccounts[g] || []).forEach(a => opts.push(`<option value="${mfaEsc(a.id)}" ${a.id === selectedId ? 'selected' : ''}>${label}: ${mfaEsc(a.name)}</option>`));
+  });
+  return opts.join('');
+}
+
+async function addOwnAccount(rawIban, label, linkedAccountId){
+  const msg = document.getElementById('ownAccountsMsg');
+  const iban = normIban(rawIban);
+  if(!ibanValid(iban)){ msg.textContent = 'Dit is geen geldig IBAN — controleer de cijfers en letters.'; return false; }
+  if(ownAccounts.some(a => normIban(a.iban) === iban) || connectedAccounts.some(a => a.iban === iban)){
+    msg.textContent = 'Deze rekening staat er al bij.'; return false;
+  }
+  msg.textContent = '';
+  ownAccounts.push({ iban, label: String(label || '').trim().slice(0, 40) || 'Eigen rekening', linkedAccountId: linkedAccountId || null });
+  await saveOwnAccounts();
+  renderTransactionsListFromCache();
+  computeSpendByCategory();
+  return true;
+}
+
+function renderOwnAccountsUi(){
+  const list = document.getElementById('ownAccountsList');
+  if(!list) return;
+  const cur = CURRENCIES[currency] || CURRENCIES.EUR;
+  const fmtAmt = (n) => `${cur.symbol} ${Math.round(n).toLocaleString(cur.locale)}`;
+  const mono = 'font-family:var(--font-mono); font-size:11.5px;';
+
+  const formSel = document.getElementById('ownLinkSelect');
+  const keep = formSel.value;
+  formSel.innerHTML = ownLinkOptionsHtml(keep);
+
+  list.innerHTML = ownAccounts.length === 0
+    ? '<div class="account-history-empty">Nog geen eigen rekeningen toegevoegd.</div>'
+    : ownAccounts.map((a, i) => `<div class="account-history-row" style="flex-wrap:wrap; align-items:center;"><span style="flex:1; min-width:180px;">${mfaEsc(a.label)} · ${mfaEsc(a.iban)}</span><select class="link-account-select" data-own-link="${i}" aria-label="Koppel aan spaarrekening">${ownLinkOptionsHtml(a.linkedAccountId)}</select><button type="button" class="subitem-remove" data-own-remove="${i}" aria-label="Verwijder" style="margin-left:6px;">×</button></div>`).join('');
+  list.querySelectorAll('[data-own-link]').forEach(sel => sel.addEventListener('change', async () => {
+    ownAccounts[Number(sel.dataset.ownLink)].linkedAccountId = sel.value || null;
+    await saveOwnAccounts(); renderOwnAccountsUi();
+  }));
+  list.querySelectorAll('[data-own-remove]').forEach(btn => btn.addEventListener('click', async () => {
+    ownAccounts.splice(Number(btn.dataset.ownRemove), 1);
+    await saveOwnAccounts(); renderTransactionsListFromCache(); computeSpendByCategory();
+  }));
+
+  const sug = ownSuggestions();
+  const sugEl = document.getElementById('ownSuggestions');
+  sugEl.innerHTML = sug.length === 0 ? '' :
+    `<div style="${mono} color:var(--mustard); margin-bottom:6px;">Mogelijk jouw eigen rekening (zelfde naam als je bankrekening):</div>` +
+    sug.slice(0, 5).map(s => `<div class="account-history-row" style="flex-wrap:wrap; align-items:center;"><span style="flex:1; min-width:180px;">${mfaEsc(s.iban)} · ${mfaEsc(s.name)} · ${s.count}× (uit ${fmtAmt(s.out)} / in ${fmtAmt(s.in)})</span><button type="button" data-own-add="${mfaEsc(s.iban)}" style="padding:4px 10px; font-size:11px;">Voeg toe</button></div>`).join('');
+  sugEl.querySelectorAll('[data-own-add]').forEach(btn => btn.addEventListener('click', () => addOwnAccount(btn.dataset.ownAdd, 'Eigen rekening', null)));
+  const badge = document.getElementById('ownSuggestBadge');
+  badge.textContent = String(sug.length);
+  badge.style.display = sug.length > 0 ? 'inline-block' : 'none';
+
+  const pend = ownAccounts.filter(a => a.linkedAccountId).map(a => {
+    const p = pendingTransfersFor(a);
+    const head = `${mfaEsc(a.label)} → `;
+    if(!p) return `<div style="${mono} color:var(--text-mute); padding:3px 0;">${head}de gekoppelde spaarrekening bestaat niet meer.</div>`;
+    const name = mfaEsc(p.acct.name);
+    if(p.needsBaseline) return `<div style="${mono} color:var(--text-mute); padding:3px 0;">${head}<b style="color:var(--text);">${name}</b>: leg eerst een saldo vast (Savings &amp; Investments hierboven). Overboekingen tellen vanaf die datum.</div>`;
+    if(p.items.length === 0) return `<div style="${mono} color:var(--text-mute); padding:3px 0;">${head}<b style="color:var(--text);">${name}</b>: alles verwerkt (laatste saldo van ${mfaEsc(p.cutoff)}).</div>`;
+    return `<div style="${mono} padding:6px 0; display:flex; gap:10px; flex-wrap:wrap; align-items:center;"><span>${head}<b>${name}</b>: sinds ${mfaEsc(p.cutoff)} ${p.net >= 0 ? '+' : '−'}${fmtAmt(Math.abs(p.net))} (${p.items.length} overboeking${p.items.length === 1 ? '' : 'en'})</span><button type="button" class="primary" data-own-process="${mfaEsc(normIban(a.iban))}" style="padding:4px 10px; font-size:11px;">Verwerk in saldo</button></div>`;
+  });
+  const pendEl = document.getElementById('ownPending');
+  pendEl.innerHTML = pend.join('');
+  pendEl.querySelectorAll('[data-own-process]').forEach(btn => btn.addEventListener('click', () => processOwnTransfers(btn.dataset.ownProcess)));
+}
+
+document.getElementById('addOwnAccountBtn').addEventListener('click', async () => {
+  const ibanEl = document.getElementById('ownIbanInput');
+  const labelEl = document.getElementById('ownLabelInput');
+  const linkEl = document.getElementById('ownLinkSelect');
+  if(await addOwnAccount(ibanEl.value, labelEl.value, linkEl.value)){ ibanEl.value = ''; labelEl.value = ''; linkEl.value = ''; }
+});
+
 function categorySelectOptionsHtml(selected){
   const opts = ['<option value="">— uncategorized —</option>'];
   DEFAULT_CATS.forEach(c => {
     opts.push(`<option value="${c.key}" ${c.key===selected?'selected':''}>${c.name}</option>`);
   });
+  opts.push(`<option value="transfer" ${selected==='transfer'?'selected':''}>↔ Eigen overboeking (geen uitgave)</option>`);
   return opts.join('');
 }
 
@@ -3097,7 +3495,9 @@ function renderTransactionRow(docId, t){
   const amount = signedAmount(t);
   const desc = extractTransactionDesc(t);
   const amountText = amount === null ? '—' : `${amount < 0 ? '−' : '+'}${cur.symbol} ${Math.abs(amount).toLocaleString(cur.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const amountColor = amount === null ? 'var(--text-mute)' : amount < 0 ? 'var(--rust)' : 'var(--teal)';
+  const tInfo = transferInfo({ data: t });
+  const ownIbanHit = !!ownTransferOf(t);
+  const amountColor = (amount === null || tInfo) ? 'var(--text-mute)' : amount < 0 ? 'var(--rust)' : 'var(--teal)';
   // Falls back to a merchant rule suggestion if this transaction has never
   // been explicitly categorized itself.
   const effectiveCategory = t.category || merchantRules[normalizeMerchant(desc)] || '';
@@ -3105,7 +3505,9 @@ function renderTransactionRow(docId, t){
     <div class="account-history-row" style="flex-wrap:wrap; align-items:center;">
       <span style="flex:1; min-width:160px;">${date} — ${desc}</span>
       <span style="color:${amountColor}; margin-right:10px;">${amountText}</span>
-      <select class="link-account-select" data-txn-id="${docId}" data-txn-desc="${desc.replace(/"/g,'&quot;')}" aria-label="Category">${categorySelectOptionsHtml(effectiveCategory)}</select>
+      ${ownIbanHit
+        ? `<span style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-mute);">↔ ${mfaEsc(tInfo.label)}</span>`
+        : `<select class="link-account-select" data-txn-id="${docId}" data-txn-desc="${desc.replace(/"/g,'&quot;')}" aria-label="Category">${categorySelectOptionsHtml(effectiveCategory)}</select>`}
     </div>
   `;
 }
@@ -3200,8 +3602,8 @@ let catMonth = 'all';
 function merchantRuleFor(item){
   return merchantRules[normalizeMerchant(extractTransactionDesc(item.data))];
 }
-function needsNaming(item){ return !item.data.category && !merchantRuleFor(item); }
-function suggestedOnly(item){ return !item.data.category && !!merchantRuleFor(item); }
+function needsNaming(item){ return !item.data.category && !merchantRuleFor(item) && !transferInfo(item); }
+function suggestedOnly(item){ return !item.data.category && !!merchantRuleFor(item) && !ownTransferOf(item.data); }
 
 function updateCategorizeBadge(){
   const badge = document.getElementById('txnUncatBadge');
@@ -3295,6 +3697,7 @@ document.getElementById('toggleTxnBtn').addEventListener('click', () => { txnBro
 
 function renderTransactionsListFromCache(){
   updateTxnToggle();
+  renderOwnAccountsUi();
   refreshCategorizeViews();
   const container = document.getElementById('transactionsList');
   let filtered = allTransactionsCache;
@@ -3327,14 +3730,15 @@ function renderMonthSummary(filtered){
   const el = document.getElementById('txnMonthSummary');
   if(!el) return;
   const cur = CURRENCIES[currency] || CURRENCIES.EUR;
-  let spent = 0, received = 0, uncategorized = 0;
+  let spent = 0, received = 0, moved = 0, uncategorized = 0;
   filtered.forEach(item => {
     const amt = signedAmount(item.data);
+    if(transferInfo(item)){ if(amt) moved += Math.abs(amt); return; } // eigen overboeking: geen uitgave of inkomen
     if(amt < 0) spent += Math.abs(amt); else if(amt > 0) received += amt;
     if(!item.data.category) uncategorized++;
   });
   const fmtAmt = (n) => `${cur.symbol} ${Math.round(n).toLocaleString(cur.locale)}`;
-  el.textContent = `${filtered.length} transaction${filtered.length===1?'':'s'} · out ${fmtAmt(spent)} · in ${fmtAmt(received)}${uncategorized ? ` · ${uncategorized} uncategorized` : ''}`;
+  el.textContent = `${filtered.length} transaction${filtered.length===1?'':'s'} · out ${fmtAmt(spent)} · in ${fmtAmt(received)}${moved ? ` · overboekingen ${fmtAmt(moved)}` : ''}${uncategorized ? ` · ${uncategorized} uncategorized` : ''}`;
 }
 
 function setTxnMonth(month){
@@ -3354,6 +3758,7 @@ async function loadTransactionsList(force){
   container.innerHTML = '<div class="account-history-empty">Loading…</div>';
   try{
     await loadMerchantRules();
+    await loadOwnAccounts();
     renderMerchantRulesList();
     const path = `users/${currentUser.uid}/bank/transactions/items`;
     const docs = [];
@@ -3392,7 +3797,7 @@ function renderMerchantRulesList(){
   }
   container.innerHTML = keys.map(merchant => {
     const cat = DEFAULT_CATS.find(c => c.key === merchantRules[merchant]);
-    const catName = cat ? cat.name : merchantRules[merchant];
+    const catName = cat ? cat.name : (merchantRules[merchant] === 'transfer' ? 'Eigen overboeking' : merchantRules[merchant]);
     return `<div class="account-history-row"><span>${merchant}</span><span>${catName} <button type="button" class="subitem-remove" data-remove-rule="${merchant.replace(/"/g,'&quot;')}" style="margin-left:8px;">×</button></span></div>`;
   }).join('');
   container.querySelectorAll('[data-remove-rule]').forEach(btn => {
@@ -3443,6 +3848,7 @@ async function computeSpendByCategory(){
     const totals = {};
     relevant.forEach(item => {
       const t = item.data;
+      if(transferInfo(item)) return; // eigen overboekingen zijn geen uitgaven
       const desc = extractTransactionDesc(t);
       const cat = t.category || merchantRules[normalizeMerchant(desc)];
       if(!cat) return;
@@ -3463,7 +3869,7 @@ async function computeSpendByCategory(){
 // Async-functies die in dit blok staan zijn van buiten het blok niet zichtbaar.
 // Zonder deze regel meldden de knoppen Connect / Sync / Add rule dat de bank
 // "niet beschikbaar" was, ook al werkte alles gewoon.
-Object.assign(window, { addMerchantRuleManually, applySuggestedCategories, checkBankConsentExpiry, connectBank, loadTransactionsList, openCategorizePage, setCatMonth, setTxnMonth, syncBank, runLockGate, submitLockCode });
+Object.assign(window, { addMerchantRuleManually, applySuggestedCategories, checkBankConsentExpiry, connectBank, loadTransactionsList, openCategorizePage, setCatMonth, setTxnMonth, syncBank, runLockGate, submitLockCode, unlockWithPasskey });
 
 let appStarted = false;
 
@@ -3492,11 +3898,18 @@ async function runLockGate(){
     return;
   }
   if(!mfaEnabled){
-    setLockState('setup', 'Stel eerst 2FA in. Zolang dat niet gedaan is, blijft alles vergrendeld.');
+    setLockState('setup', 'Stel eerst 2FA in — met je vingerafdruk (aanbevolen) of een authenticator-code. Zolang dat niet gedaan is, blijft alles vergrendeld.');
     return;
   }
   if(getStoredMfaSession()){ await startApp(); return; }
-  setLockState('code', 'Voer de 6 cijfers uit je authenticator in om te ontgrendelen.');
+  const canPasskey = mfaPasskeys.length > 0 && webauthnSupported();
+  if(!canPasskey && !mfaTotp){
+    setLockState('error', 'Je hebt alleen een passkey ingesteld, maar die kan op dit apparaat of in deze browser niet gebruikt worden. Probeer je telefoon of een andere browser waar je hem hebt ingesteld.');
+    return;
+  }
+  document.getElementById('lockPasskeyArea').style.display = canPasskey ? 'block' : 'none';
+  document.getElementById('lockTotpArea').style.display = mfaTotp ? 'block' : 'none';
+  setLockState('code', canPasskey ? 'Ontgrendel met je vingerafdruk' + (mfaTotp ? ' of met een code.' : '.') : 'Voer de 6 cijfers uit je authenticator in om te ontgrendelen.');
 }
 
 async function submitLockCode(){
